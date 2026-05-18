@@ -144,15 +144,16 @@ TEST(normal, mills_ratio_is_smooth_and_matches_its_asymptote) {
 // ---------------------------------------------------------------------------
 
 TEST(normalised_black, matches_50_digit_reference) {
-    // 2e-13 rather than machine epsilon, and the reason is worth stating: the
-    // residual cancellation in R(u-t) - R(u+t) costs about log10(|x|/s^2)
-    // digits. The measured worst case over the reference set is 8.8e-14, at
-    // x = -1, s = 0.05 -- twenty standard deviations out, where the option is
-    // worth 6.8e-92 of sqrt(F K). It does not propagate to the inverted vol,
-    // because vega there is 8e13 times the price: the same 8.8e-14 price error
-    // is a 2e-16 relative error in sigma.
+    // 1e-13 rather than machine epsilon. Near the money the Taylor branch of
+    // mills_difference removes the cancellation entirely and these come back
+    // exact; what is left is the deep wing, where R(u-t) and R(u+t) are far
+    // enough apart that the series is not selected and the subtraction costs
+    // about log10(|x|/s^2) digits. Measured worst over the reference set is
+    // 6.9e-14, at x = -1, s = 0.05 -- twenty standard deviations out, where the
+    // option is worth 6.8e-92 of sqrt(F K). It does not reach the inverted vol:
+    // vega there is 8e13 times the price, so the same error is 2e-16 in sigma.
     for (const auto& c : kNormalisedBlackReference) {
-        CHECK_CLOSE(normalised_black(c.x, c.s) / c.b, 1.0, 2e-13);
+        CHECK_CLOSE(normalised_black(c.x, c.s) / c.b, 1.0, 1e-13);
     }
 }
 

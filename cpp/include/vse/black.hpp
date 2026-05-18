@@ -38,6 +38,62 @@ inline Real mills_ratio(Real z) {
     return SQRT_HALF_PI * erfcx(z * INV_SQRT_2);
 }
 
+/// R(u - t) - R(u + t), which is the bracket in the normalised Black formula.
+///
+/// The Mills form removes the catastrophic cancellation of the raw
+/// difference-of-CDFs, but a second, milder one survives inside it: the two
+/// Mills ratios differ by roughly 2t|R'(u)|, so when t is small against the
+/// scale on which R varies the subtraction still costs about
+/// -log10(2t|R'(u)|/R(u)) digits. Near the money at short expiry that is three
+/// or four digits, and it was the binding constraint on the implied-vol round
+/// trip -- 2.8e-13, an order of magnitude worse than everything around it.
+///
+/// The fix is to stop subtracting. R is entire, so the difference has an exact
+/// odd Taylor series
+///
+///     R(u-t) - R(u+t) = -2 sum_k t^{2k+1} R^{(2k+1)}(u) / (2k+1)!,
+///
+/// and the derivatives come from R'(z) = z R(z) - 1 with
+/// R^{(n+1)} = z R^{(n)} + n R^{(n-1)}. Every term is added, nothing cancels,
+/// and where t is small the series is also faster than two erfcx calls.
+///
+/// The forward recurrence is mildly unstable for large u, but only the first
+/// two or three terms ever matter in the regime where the series is selected,
+/// and by then the higher terms are 1e-5 of the leading one -- their lost digits
+/// do not reach the result.
+inline Real mills_difference(Real u, Real t) {
+    const Real r0 = mills_ratio(u);
+    const Real r1 = u * r0 - 1.0;
+
+    // Estimated relative size of the difference against its operands. Above a
+    // few percent the direct subtraction keeps essentially all its digits and
+    // is the cheaper branch.
+    if (!(2.0 * t * std::fabs(r1) < 0.1 * std::fabs(r0))) {
+        return mills_ratio(u - t) - mills_ratio(u + t);
+    }
+
+    Real d_prev = r0, d_cur = r1;   // R^{(n-1)}, R^{(n)} at n = 1
+    Real t_pow  = t;                // t^{2k+1}
+    Real fact   = 1.0;              // (2k+1)!
+    Real sum    = t_pow * d_cur / fact;
+    const Real t2 = t * t;
+
+    for (int k = 1; k <= 10; ++k) {
+        const int n = 2 * k - 1;
+        for (int j = 0; j < 2; ++j) {
+            const Real d_next = u * d_cur + Real(n + j) * d_prev;
+            d_prev = d_cur;
+            d_cur  = d_next;
+        }
+        t_pow *= t2;
+        fact  *= Real(2 * k) * Real(2 * k + 1);
+        const Real term = t_pow * d_cur / fact;
+        sum += term;
+        if (std::fabs(term) <= 1e-18 * std::fabs(sum)) break;
+    }
+    return -2.0 * sum;
+}
+
 /// Normalised Black vega: db/ds. Never cancels, never overflows.
 inline Real normalised_vega(Real x, Real s) noexcept {
     if (s <= 0.0) return 0.0;
@@ -64,7 +120,7 @@ inline Real normalised_black(Real x, Real s) {
         // of a double. The s cap only guards erfcx(-y) = 2e^{y^2} - erfcx(y)
         // against overflow, and s = 20 is sigma * sqrt(T) = 2000 vol points at
         // one year.
-        return normalised_vega(x, s) * (mills_ratio(u - t) - mills_ratio(u + t));
+        return normalised_vega(x, s) * mills_difference(u, t);
     }
     return std::exp(0.5 * x) * norm_cdf(x / s + t) -
            std::exp(-0.5 * x) * norm_cdf(x / s - t);
