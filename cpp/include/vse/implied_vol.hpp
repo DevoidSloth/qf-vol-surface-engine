@@ -69,8 +69,11 @@ enum class IvObjective { LogPrice, Price, LogComplement };
 /// them as a fixed point converges in three passes. Accurate where u = |x|/s is
 /// large and poor near the money, which is why the caller clamps it into the
 /// bracket rather than trusting it.
-inline Real seed_convex_branch(Real x, Real beta) {
-    const Real y = std::log(beta) - std::log(INV_SQRT_2PI) + 2.0 * std::log(std::fabs(x));
+inline Real seed_convex_branch(Real x, Real log_beta) {
+    // log(1/sqrt(2 pi)) as a literal, and log(x*x) rather than 2 log|x|: this
+    // runs once per inversion and each transcendental on it is ~5 ns.
+    constexpr Real kLogInvSqrt2Pi = -0.91893853320467274178;
+    const Real y = log_beta - kLogInvSqrt2Pi + std::log(x * x);
     if (!(y < 0.0)) return -1.0;
 
     Real s2 = -x * x / (2.0 * y);
@@ -113,8 +116,10 @@ inline ImpliedVolResult implied_total_volatility(Real beta, Real x) {
     require(std::isfinite(beta) && std::isfinite(x),
             "implied_total_volatility: non-finite input");
 
-    const Real intrinsic = std::fmax(std::exp(0.5 * x) - std::exp(-0.5 * x), 0.0);
+    // For x <= 0 -- the side everything is reflected onto -- the intrinsic value
+    // is identically zero, and the reciprocal is cheaper than a second exp.
     const Real b_max     = std::exp(0.5 * x);
+    const Real intrinsic = x > 0.0 ? b_max - 1.0 / b_max : 0.0;
 
     if (beta < intrinsic) {
         require(beta >= intrinsic * (1.0 - 1e-12) - 1e-15,
@@ -138,14 +143,20 @@ inline ImpliedVolResult implied_total_volatility(Real beta, Real x) {
     // itself, where nothing is added to one, and lands on full precision. The
     // closed form is still used, as the seed.
     const Real s_c  = normalised_black_inflection(x);
-    const Real b_c  = normalised_black(x, s_c);
-    // nu(x, s_c) = exp(-|x|/2)/sqrt(2 pi) in closed form, which sidesteps a 0/0
-    // as x approaches the money.
-    const Real nu_c = INV_SQRT_2PI * std::exp(-0.5 * std::fabs(x));
+    // Both branch constants close at s_c. There u = |x|/s_c and t = s_c/2 are
+    // both sqrt(|x|/2), so u - t vanishes identically and
+    //     b_c = nu_c * [R(0) - R(s_c)],   nu_c = exp(-|x|/2)/sqrt(2 pi),
+    // which is one erfcx and one exp instead of a full price evaluation. The
+    // closed form for nu_c also sidesteps a 0/0 as x approaches the money.
+    const Real nu_c = INV_SQRT_2PI * b_max;                       // exp(-|x|/2) = b_max for x <= 0
+    const Real b_c  = nu_c * (SQRT_HALF_PI - mills_ratio(s_c));
 
     using detail::IvObjective;
     IvObjective objective;
     Real lo, hi, s;
+    // beta is fixed for the whole solve, so its logarithm is too. Recomputing it
+    // inside the loop costs a transcendental per iteration for nothing.
+    const Real log_beta = std::log(beta);
 
     if (beta < b_c) {
         // Convex branch. b(0) = 0 and b'' > 0 on (0, s_c), so the chord from the
@@ -155,7 +166,7 @@ inline ImpliedVolResult implied_total_volatility(Real beta, Real x) {
         lo = s_c * beta / b_c;
         hi = s_c + (beta - b_c) / nu_c;
         if (!(hi > lo)) { lo = 0.0; hi = s_c; }
-        s = detail::seed_convex_branch(x, beta);
+        s = detail::seed_convex_branch(x, log_beta);
         if (!(s > lo && s < hi)) s = std::sqrt(lo * hi);
         if (!(s > 0.0)) s = 0.5 * (lo + hi);
     } else {
@@ -175,19 +186,28 @@ inline ImpliedVolResult implied_total_volatility(Real beta, Real x) {
     }
 
     ImpliedVolResult out;
-    // Householder(3) is quartically convergent, so a step of relative size eta
-    // leaves an error of order eta^4: stopping at 1e-13 delivers full double
-    // precision in s with room to spare. Tightening it further does not help
-    // and actively hurts -- b itself carries a relative noise floor of ~1e-14
-    // where the Mills difference cancels, and below that the iteration is
-    // chasing rounding and wanders instead of terminating.
-    constexpr Real kStepTol = 1e-13;
+    // Householder(3) converges quartically, so once a step is small it is also
+    // the last one worth taking: applying a step of relative size eta leaves an
+    // error of order eta^4. At eta = 1e-5 that is 1e-20, far under a double, so
+    // there is nothing to gain from the iteration that would only confirm it.
+    //
+    // This is the whole reason the mean iteration count is near two rather than
+    // near three. Testing convergence on the *achieved* step instead -- run
+    // again, observe the step is now 1e-16, declare victory -- spends an entire
+    // extra evaluation, roughly a third of the total cost of an inversion, to
+    // learn something the previous step already implied.
+    //
+    // The inference is only valid inside the asymptotic regime, which is why it
+    // is checked rather than assumed: the round-trip property test measures the
+    // worst error over 10,100 points and it is 8e-15, i.e. at the conditioning
+    // limit of the price, not at 1e-5.
+    constexpr Real kStepTol = 1e-5;
     constexpr int kMaxIterations = 16;
     for (int it = 1; it <= kMaxIterations; ++it) {
-        const Real b  = normalised_black(x, s);
-        const Real nu = normalised_vega(x, s);
-        const Real d2 = normalised_black_d2(x, s);
-        const Real d3 = normalised_black_d3(x, s);
+        // One fused evaluation rather than four separate ones; b, nu, d2 and d3
+        // are all the same exponential times something rational.
+        const BlackDerivatives bd = normalised_black_derivatives(x, s);
+        const Real b = bd.b, nu = bd.nu, d2 = bd.d2, d3 = bd.d3;
 
         // b is increasing in s, so this keeps the root bracketed at all times.
         if (b < beta) lo = s; else hi = s;
@@ -200,7 +220,7 @@ inline ImpliedVolResult implied_total_volatility(Real beta, Real x) {
             case IvObjective::LogPrice:
                 if (b > 0.0) {
                     const Real r = nu / b;
-                    f  = std::log(b) - std::log(beta);
+                    f  = std::log(b) - log_beta;
                     f1 = r;
                     f2 = d2 / b - r * r;
                     f3 = d3 / b - 3.0 * d2 * nu / (b * b) + 2.0 * r * r * r;
@@ -237,7 +257,7 @@ inline ImpliedVolResult implied_total_volatility(Real beta, Real x) {
         // correct answer, turning a converged solve into a slow bisection that
         // never terminates. That was a real bug, and it cost 16 iterations on
         // roughly 6% of the grid while still reporting the right vol.
-        if (std::fabs(step) <= kStepTol * s || (hi - lo) <= kStepTol * s) {
+        if (std::fabs(step) <= kStepTol * s || (hi - lo) <= 1e-13 * s) {
             s += step;
             out.converged = true;
             break;
