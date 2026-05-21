@@ -53,6 +53,14 @@ if(VSE_BUILD_BENCH)
     add_executable(vse_bench ${VSE_BENCH_SOURCES})
     target_link_libraries(vse_bench PRIVATE vse)
     target_include_directories(vse_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cpp/bench)
+    # The benchmark reports the flags it was built with rather than trusting the
+    # report author to remember them.
+    if(MSVC)
+      set(VSE_BENCH_FLAGS "/O2 /fp:precise")
+    else()
+      set(VSE_BENCH_FLAGS "-O2 -fno-fast-math")
+    endif()
+    target_compile_definitions(vse_bench PRIVATE VSE_BENCH_FLAGS="${VSE_BENCH_FLAGS}")
   endif()
 endif()
 
