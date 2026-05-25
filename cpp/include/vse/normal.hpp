@@ -131,7 +131,13 @@ inline Real calerf(Real x, ErfMode mode) {
         case ErfMode::Erfcx:
             if (x < 0.0) {
                 if (x < kXNeg) {
-                    result = DBL_HUGE;
+                    // erfcx(x) = 2 e^{x^2} - erfcx(-x) genuinely exceeds the
+                    // largest double here. Cody's original returns XINF, i.e.
+                    // DBL_MAX; infinity is the IEEE answer for an overflowing
+                    // computation and is the one that propagates honestly --
+                    // DBL_MAX is a finite number that later arithmetic will
+                    // happily treat as data.
+                    result = std::numeric_limits<Real>::infinity();
                 } else {
                     const Real t = std::trunc(x * 16.0) / 16.0;
                     const Real del = (x - t) * (x + t);
