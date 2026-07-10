@@ -44,6 +44,15 @@ inline void require(bool cond, const char* msg) {
 template <typename T>
 constexpr T sqr(T x) noexcept { return x * x; }
 
+/// Underlying numeric value of a scalar or of a differentiable wrapper.
+///
+/// Lets one templated pricer branch on magnitude without knowing whether it is
+/// being differentiated -- which is the whole point of writing the pricer once
+/// and instantiating it for Real, Dual and ADouble rather than three times.
+/// dual.hpp and aad.hpp add their own overloads.
+template <typename T>
+constexpr const T& value_of(const T& x) noexcept { return x; }
+
 template <typename T>
 constexpr T clampv(T x, T lo, T hi) noexcept { return x < lo ? lo : (x > hi ? hi : x); }
 

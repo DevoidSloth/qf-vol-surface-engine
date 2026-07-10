@@ -142,9 +142,7 @@ inline Dual<Real, N> real(const Dual<std::complex<Real>, N>& a) {
     return r;
 }
 
-/// Underlying value of a scalar or a dual, so that generic numerical code can
-/// branch on magnitude without knowing whether it is being differentiated.
-template <class T> inline const T& value_of(const T& x) { return x; }
+/// See common.hpp for the scalar case.
 template <class T, int N> inline const T& value_of(const Dual<T, N>& x) { return x.v; }
 
 /// Convenience aliases for the two shapes this library uses.
