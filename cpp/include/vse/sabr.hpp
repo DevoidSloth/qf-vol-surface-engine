@@ -133,6 +133,18 @@ inline Real sabr_normal_vol(const SABRParams& p, Real forward, Real strike, Real
            detail::z_over_chi(z, p.rho) * correction;
 }
 
+/// Flattened signatures, so the Python layer can broadcast over strikes without
+/// building a parameter object per point.
+inline Real sabr_lognormal_vol_scalar(Real alpha, Real beta, Real rho, Real nu, Real shift,
+                                      Real forward, Real strike, Real expiry) {
+    return sabr_lognormal_vol(SABRParams{alpha, beta, rho, nu, shift}, forward, strike, expiry);
+}
+
+inline Real sabr_normal_vol_scalar(Real alpha, Real beta, Real rho, Real nu, Real shift,
+                                   Real forward, Real strike, Real expiry) {
+    return sabr_normal_vol(SABRParams{alpha, beta, rho, nu, shift}, forward, strike, expiry);
+}
+
 /// At-the-money lognormal volatility, the F = K limit taken analytically.
 inline Real sabr_atm_vol(const SABRParams& p, Real forward, Real expiry) {
     return sabr_lognormal_vol(p, forward, forward, expiry);
