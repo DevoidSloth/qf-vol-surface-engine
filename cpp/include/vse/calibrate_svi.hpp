@@ -36,8 +36,8 @@ namespace vse {
 
 struct SVIFitResult {
     SVIRaw params;
-    Real rmse_vol_points = 0.0;      ///< unweighted, in vol points (0.01 = 1 point)
-    Real max_error_vol_points = 0.0;
+    Real rmse_vol = 0.0;      ///< absolute vol: 0.0162 is 1.62 vol points
+    Real max_error_vol = 0.0;
     Real weighted_rms = 0.0;         ///< in units of the half-spread
     int  iterations = 0;
     bool converged = false;
@@ -131,7 +131,7 @@ inline SVIFitResult fit_svi_slice(const std::vector<SurfacePoint>& points, Real 
     box.upper = { 2.0 * w_max, 2.0,    0.9999,  3.0, 5.0};
 
     SVIFitResult best;
-    best.rmse_vol_points = DBL_HUGE;
+    best.rmse_vol = DBL_HUGE;
 
     for (Real m0 : {-0.15, 0.0, 0.15}) {
         for (Real sig0 : {0.05, 0.2, 0.5}) {
@@ -147,10 +147,10 @@ inline SVIFitResult fit_svi_slice(const std::vector<SurfacePoint>& points, Real 
                     worst = std::fmax(worst, std::fabs(e));
                 }
                 const Real rmse = std::sqrt(ss / Real(points.size()));
-                if (rmse < best.rmse_vol_points) {
+                if (rmse < best.rmse_vol) {
                     best.params = s;
-                    best.rmse_vol_points = rmse;
-                    best.max_error_vol_points = worst;
+                    best.rmse_vol = rmse;
+                    best.max_error_vol = worst;
                     best.weighted_rms = lm.rms;
                     best.iterations = lm.iterations;
                     best.converged = lm.converged();
@@ -174,8 +174,8 @@ inline SVIFitResult fit_svi_slice(const std::vector<SurfacePoint>& points, Real 
 
 struct SSVIFitResult {
     SSVISurface surface;
-    Real rmse_vol_points = 0.0;
-    Real max_error_vol_points = 0.0;
+    Real rmse_vol = 0.0;
+    Real max_error_vol = 0.0;
     int  quotes = 0;
     int  iterations = 0;
     bool converged = false;
@@ -271,7 +271,7 @@ inline SSVIFitResult fit_ssvi(const std::vector<std::vector<SurfacePoint>>& slic
     box.upper = {10.0, 1.0,     0.9999};
 
     SSVIFitResult best;
-    best.rmse_vol_points = DBL_HUGE;
+    best.rmse_vol = DBL_HUGE;
 
     for (Real eta0 : {0.3, 1.0, 2.5}) {
         for (Real gamma0 : {0.25, 0.5}) {
@@ -296,10 +296,10 @@ inline SSVIFitResult fit_ssvi(const std::vector<std::vector<SurfacePoint>>& slic
                     }
                 }
                 const Real rmse = std::sqrt(ss / Real(n));
-                if (rmse < best.rmse_vol_points) {
+                if (rmse < best.rmse_vol) {
                     best.surface = surf;
-                    best.rmse_vol_points = rmse;
-                    best.max_error_vol_points = worst;
+                    best.rmse_vol = rmse;
+                    best.max_error_vol = worst;
                     best.quotes = n;
                     best.iterations = lm.iterations;
                     best.converged = lm.converged();
@@ -336,8 +336,8 @@ inline SSVIFitResult fit_ssvi(const std::vector<std::vector<SurfacePoint>>& slic
 
 struct ESSVIFitResult {
     ESSVISurface surface;
-    Real rmse_vol_points = 0.0;
-    Real max_error_vol_points = 0.0;
+    Real rmse_vol = 0.0;
+    Real max_error_vol = 0.0;
     int  quotes = 0;
     bool converged = true;
     bool calendar_conditions_hold = false;
@@ -455,8 +455,8 @@ inline ESSVIFitResult fit_essvi(const std::vector<std::vector<SurfacePoint>>& sl
         out.butterfly.push_back(check_butterfly(sl, T));
     }
 
-    out.rmse_vol_points = std::sqrt(ss / Real(n_total));
-    out.max_error_vol_points = worst;
+    out.rmse_vol = std::sqrt(ss / Real(n_total));
+    out.max_error_vol = worst;
     out.quotes = n_total;
     out.calendar_conditions_hold = out.surface.calendar_conditions_hold();
     out.calendar = check_calendar(out.surface, expiries);

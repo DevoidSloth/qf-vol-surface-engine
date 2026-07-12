@@ -88,11 +88,11 @@ BENCH("surface.ssvi") {
                 fit.surface.phi.eta, fit.surface.phi.gamma, fit.surface.rho);
 
     vsebench::report("surface.ssvi.rmse", "SSVI fit to a full board",
-                     fit.rmse_vol_points * 100.0, "implied vol points",
+                     fit.rmse_vol * 100.0, "implied vol points",
                      "vega/spread-weighted fit, RMSE reported unweighted over " +
                          std::to_string(p.quotes) + " quotes");
     vsebench::report("surface.ssvi.max_error", "SSVI worst single-quote error",
-                     fit.max_error_vol_points * 100.0, "implied vol points", "");
+                     fit.max_error_vol * 100.0, "implied vol points", "");
     vsebench::report("surface.ssvi.butterfly_violations",
                      "Butterfly violations, SSVI", double(butterfly_violations), "count",
                      "grid points with g(k) < 0 across all slices");
@@ -111,7 +111,7 @@ BENCH("surface.ssvi") {
 
     const double ns = vsebench::time_ns_per_op([&] {
         const auto f = fit_ssvi(p.slices, p.expiries, p.theta);
-        return f.rmse_vol_points;
+        return f.rmse_vol;
     }, 1, 2.0, 5);
     vsebench::report("surface.ssvi.calibration_time",
                      "SSVI calibration, 18 starts, analytic Jacobian",
@@ -125,10 +125,10 @@ BENCH("surface.essvi") {
     for (const auto& b : fit.butterfly) violations += b.violations;
 
     vsebench::report("surface.essvi.rmse", "eSSVI fit to a full board",
-                     fit.rmse_vol_points * 100.0, "implied vol points",
+                     fit.rmse_vol * 100.0, "implied vol points",
                      "rho free per slice, calendar conditions enforced as constraints");
     vsebench::report("surface.essvi.max_error", "eSSVI worst single-quote error",
-                     fit.max_error_vol_points * 100.0, "implied vol points", "");
+                     fit.max_error_vol * 100.0, "implied vol points", "");
     vsebench::report("surface.essvi.butterfly_violations",
                      "Butterfly violations, eSSVI", double(violations), "count", "");
     vsebench::report("surface.essvi.calendar_conditions",
@@ -180,7 +180,7 @@ BENCH("surface.spline_control") {
     vsebench::report("surface.spline.min_g", "Smallest g(k), cubic spline",
                      bf.min_g, "dimensionless", "");
     vsebench::report("surface.svi_slice.rmse", "Single-slice SVI on the same quotes",
-                     svi.rmse_vol_points * 100.0, "implied vol points", "");
+                     svi.rmse_vol * 100.0, "implied vol points", "");
     vsebench::report("surface.svi_slice.butterfly_violations",
                      "Butterfly violations, single-slice SVI",
                      double(svi_bf.violations), "count", "same grid");

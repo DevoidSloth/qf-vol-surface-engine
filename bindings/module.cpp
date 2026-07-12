@@ -353,16 +353,16 @@ PYBIND11_MODULE(_vse, m) {
     // -----------------------------------------------------------------------
     value_type<SVIFitResult>(m, "SVIFitResult", "")
         .def_readonly("params", &SVIFitResult::params)
-        .def_readonly("rmse_vol_points", &SVIFitResult::rmse_vol_points)
-        .def_readonly("max_error_vol_points", &SVIFitResult::max_error_vol_points)
+        .def_readonly("rmse_vol", &SVIFitResult::rmse_vol)
+        .def_readonly("max_error_vol", &SVIFitResult::max_error_vol)
         .def_readonly("iterations", &SVIFitResult::iterations)
         .def_readonly("converged", &SVIFitResult::converged)
         .def_readonly("butterfly", &SVIFitResult::butterfly)
         .def_readonly("message", &SVIFitResult::message);
     value_type<SSVIFitResult>(m, "SSVIFitResult", "")
         .def_readonly("surface", &SSVIFitResult::surface)
-        .def_readonly("rmse_vol_points", &SSVIFitResult::rmse_vol_points)
-        .def_readonly("max_error_vol_points", &SSVIFitResult::max_error_vol_points)
+        .def_readonly("rmse_vol", &SSVIFitResult::rmse_vol)
+        .def_readonly("max_error_vol", &SSVIFitResult::max_error_vol)
         .def_readonly("quotes", &SSVIFitResult::quotes)
         .def_readonly("converged", &SSVIFitResult::converged)
         .def_readonly("conditions", &SSVIFitResult::conditions)
@@ -371,8 +371,8 @@ PYBIND11_MODULE(_vse, m) {
         .def_readonly("message", &SSVIFitResult::message);
     value_type<ESSVIFitResult>(m, "ESSVIFitResult", "")
         .def_readonly("surface", &ESSVIFitResult::surface)
-        .def_readonly("rmse_vol_points", &ESSVIFitResult::rmse_vol_points)
-        .def_readonly("max_error_vol_points", &ESSVIFitResult::max_error_vol_points)
+        .def_readonly("rmse_vol", &ESSVIFitResult::rmse_vol)
+        .def_readonly("max_error_vol", &ESSVIFitResult::max_error_vol)
         .def_readonly("quotes", &ESSVIFitResult::quotes)
         .def_readonly("calendar_conditions_hold", &ESSVIFitResult::calendar_conditions_hold)
         .def_readonly("butterfly", &ESSVIFitResult::butterfly)
@@ -458,8 +458,8 @@ PYBIND11_MODULE(_vse, m) {
         .def_readwrite("weight", &CalibrationQuote::weight);
     value_type<HestonFitResult>(m, "HestonFitResult", "")
         .def_readonly("params", &HestonFitResult::params)
-        .def_readonly("rmse_vol_points", &HestonFitResult::rmse_vol_points)
-        .def_readonly("max_error_vol_points", &HestonFitResult::max_error_vol_points)
+        .def_readonly("rmse_vol", &HestonFitResult::rmse_vol)
+        .def_readonly("max_error_vol", &HestonFitResult::max_error_vol)
         .def_readonly("quotes", &HestonFitResult::quotes)
         .def_readonly("iterations", &HestonFitResult::iterations)
         .def_readonly("slice_builds", &HestonFitResult::slice_builds)
@@ -494,7 +494,12 @@ PYBIND11_MODULE(_vse, m) {
         .def_readwrite("beta", &SABRParams::beta)
         .def_readwrite("rho", &SABRParams::rho)
         .def_readwrite("nu", &SABRParams::nu)
-        .def_readwrite("shift", &SABRParams::shift);
+        .def_readwrite("shift", &SABRParams::shift)
+        .def("__repr__", [](const SABRParams& p) {
+            return "SABRParams(alpha=" + std::to_string(p.alpha) + ", beta=" +
+                   std::to_string(p.beta) + ", rho=" + std::to_string(p.rho) +
+                   ", nu=" + std::to_string(p.nu) + ")";
+        });
     value_type<SABRArbitrageReport>(m, "SABRArbitrageReport", "")
         .def_readonly("free", &SABRArbitrageReport::free)
         .def_readonly("arbitrage_boundary", &SABRArbitrageReport::arbitrage_boundary)

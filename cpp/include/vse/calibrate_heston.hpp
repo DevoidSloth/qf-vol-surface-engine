@@ -46,8 +46,8 @@ struct CalibrationQuote {
 
 struct HestonFitResult {
     HestonParams params;
-    Real rmse_vol_points = 0.0;      ///< unweighted, in absolute vol (0.01 = 1 point)
-    Real max_error_vol_points = 0.0;
+    Real rmse_vol = 0.0;      ///< absolute vol: 0.0162 is 1.62 vol points
+    Real max_error_vol = 0.0;
     Real weighted_rms = 0.0;
     int  quotes = 0;
     int  iterations = 0;
@@ -224,9 +224,9 @@ inline HestonFitResult calibrate_heston(const std::vector<CalibrationQuote>& quo
     for (std::size_t i = 0; i < quotes.size(); ++i) {
         const Real e = vols[i] - quotes[i].implied_vol;
         ss += e * e;
-        out.max_error_vol_points = std::fmax(out.max_error_vol_points, std::fabs(e));
+        out.max_error_vol = std::fmax(out.max_error_vol, std::fabs(e));
     }
-    out.rmse_vol_points = std::sqrt(ss / Real(quotes.size()));
+    out.rmse_vol = std::sqrt(ss / Real(quotes.size()));
     return out;
 }
 
@@ -275,7 +275,7 @@ inline HestonMultiStartResult calibrate_heston_multistart(
     const std::vector<CalibrationQuote>& quotes, const LMOptions& opt = {},
     int order = 32, int panels = 16) {
     HestonMultiStartResult out;
-    out.best.rmse_vol_points = DBL_HUGE;
+    out.best.rmse_vol = DBL_HUGE;
 
     for (Real v0 : {0.01, 0.04, 0.09}) {
         for (Real kappa : {0.5, 2.0, 6.0}) {
@@ -283,8 +283,8 @@ inline HestonMultiStartResult calibrate_heston_multistart(
                 HestonParams start{v0, kappa, v0, 0.6, rho};
                 const auto fit = calibrate_heston(quotes, start, opt, order, panels);
                 out.all_optima.push_back(fit.params);
-                out.all_rmse.push_back(fit.rmse_vol_points);
-                if (fit.rmse_vol_points < out.best.rmse_vol_points) out.best = fit;
+                out.all_rmse.push_back(fit.rmse_vol);
+                if (fit.rmse_vol < out.best.rmse_vol) out.best = fit;
             }
         }
     }

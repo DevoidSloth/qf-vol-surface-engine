@@ -450,10 +450,10 @@ TEST(heston, calibration_recovers_the_parameters_that_generated_the_board) {
                 fit.params.v0, fit.params.kappa, fit.params.theta, fit.params.sigma,
                 fit.params.rho);
     std::printf("       RMSE %.3e vol points, %d LM iterations, %d slice builds\n",
-                fit.rmse_vol_points, fit.iterations, fit.slice_builds);
+                fit.rmse_vol, fit.iterations, fit.slice_builds);
 
     CHECK(fit.converged);
-    CHECK(fit.rmse_vol_points < 1e-5);
+    CHECK(fit.rmse_vol < 1e-5);
     CHECK_CLOSE(fit.params.v0, truth.v0, 1e-3);
     CHECK_CLOSE(fit.params.theta, truth.theta, 1e-2);
     CHECK_CLOSE(fit.params.rho, truth.rho, 1e-2);

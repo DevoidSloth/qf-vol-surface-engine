@@ -192,7 +192,7 @@ BENCH("heston.calibration") {
 
     const double ns = vsebench::time_ns_per_op([&] {
         const auto f = calibrate_heston(quotes, start);
-        return f.rmse_vol_points;
+        return f.rmse_vol;
     }, 1, 2.0, 5);
 
     vsebench::report("heston.calibration.time",
@@ -202,7 +202,7 @@ BENCH("heston.calibration") {
     vsebench::report("heston.calibration.iterations", "Levenberg-Marquardt iterations",
                      double(fit.iterations), "count", "");
     vsebench::report("heston.calibration.rmse", "Heston fit to a Heston board",
-                     fit.rmse_vol_points * 100.0, "implied vol points",
+                     fit.rmse_vol * 100.0, "implied vol points",
                      "noiseless data from known parameters: this measures the machinery, "
                      "not the model");
     vsebench::report("heston.calibration.v0_error", "Recovered v0 against the truth",
@@ -257,7 +257,7 @@ BENCH("heston.stability") {
         const auto fit = calibrate_heston(day, HestonParams{0.02, 3.0, 0.06, 0.5, -0.4});
         fits.push_back({fit.params.v0, fit.params.kappa, fit.params.theta,
                         fit.params.sigma, fit.params.rho});
-        worst_rmse = std::fmax(worst_rmse, fit.rmse_vol_points);
+        worst_rmse = std::fmax(worst_rmse, fit.rmse_vol);
     }
 
     const char* names[5] = {"v0", "kappa", "theta", "sigma", "rho"};

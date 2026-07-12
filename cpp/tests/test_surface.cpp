@@ -385,8 +385,8 @@ TEST(calibrate, svi_recovers_the_slice_that_generated_the_data) {
     const auto fit = fit_svi_slice(pts, T);
     CHECK(fit.converged);
     std::printf("       RMSE %.3e vol points, max %.3e, %d LM iterations\n",
-                fit.rmse_vol_points, fit.max_error_vol_points, fit.iterations);
-    CHECK(fit.rmse_vol_points < 1e-7);
+                fit.rmse_vol, fit.max_error_vol, fit.iterations);
+    CHECK(fit.rmse_vol < 1e-7);
     for (Real k = -0.6; k <= 0.45; k += 0.01) {
         CHECK_ABS(fit.params.total_variance(k), truth.total_variance(k), 1e-8);
     }
@@ -416,13 +416,13 @@ TEST(calibrate, ssvi_fits_a_synthetic_chain_arbitrage_free) {
 
     const auto fit = fit_ssvi(slices, expiries, theta);
     std::printf("       %d quotes, %zu expiries: RMSE %.4f vol points (%.2f), max %.4f\n",
-                total, slices.size(), fit.rmse_vol_points,
-                fit.rmse_vol_points * 100.0, fit.max_error_vol_points);
+                total, slices.size(), fit.rmse_vol,
+                fit.rmse_vol * 100.0, fit.max_error_vol);
     std::printf("       eta=%.4f gamma=%.4f rho=%.4f\n",
                 fit.surface.phi.eta, fit.surface.phi.gamma, fit.surface.rho);
 
     CHECK(fit.converged);
-    CHECK(fit.rmse_vol_points < 0.01);      // under one vol point
+    CHECK(fit.rmse_vol < 0.01);      // under one vol point
 
     // Arbitrage: zero violations, by both the parametric conditions and a direct
     // scan of the density.
@@ -468,13 +468,13 @@ TEST(calibrate, essvi_fits_better_than_ssvi_and_stays_arbitrage_free) {
     const auto ssvi = fit_ssvi(slices, expiries, theta);
     const auto essvi = fit_essvi(slices, expiries, theta);
     std::printf("       SSVI  RMSE %.5f vol points\n       eSSVI RMSE %.5f vol points\n",
-                ssvi.rmse_vol_points, essvi.rmse_vol_points);
+                ssvi.rmse_vol, essvi.rmse_vol);
     for (std::size_t i = 0; i < essvi.surface.size(); ++i) {
         std::printf("       T=%.3f  rho=%+.4f  psi=%.4f\n",
                     expiries[i], essvi.surface.rho[i], essvi.surface.psi[i]);
     }
 
-    CHECK(essvi.rmse_vol_points < ssvi.rmse_vol_points);
+    CHECK(essvi.rmse_vol < ssvi.rmse_vol);
     CHECK(essvi.calendar_conditions_hold);
     for (const auto& b : essvi.butterfly) CHECK(b.free);
 }
@@ -524,9 +524,9 @@ TEST(calibrate, spline_in_delta_fits_better_and_is_not_a_probability_distributio
     std::printf("       spline: RMSE %.6f vol points, min g = %+.4e, %d density violations\n",
                 spline_rmse, spline_bf.min_g, spline_bf.violations);
     std::printf("       SVI   : RMSE %.6f vol points, min g = %+.4e, %d density violations\n",
-                svi.rmse_vol_points, svi_bf.min_g, svi_bf.violations);
+                svi.rmse_vol, svi_bf.min_g, svi_bf.violations);
 
-    CHECK(spline_rmse < svi.rmse_vol_points);   // it interpolates, so of course
+    CHECK(spline_rmse < svi.rmse_vol);   // it interpolates, so of course
     CHECK(spline_bf.violations > 0);            // and it is not a distribution
     CHECK(svi_bf.violations == 0);
 }
@@ -561,10 +561,10 @@ TEST(calibrate, essvi_calendar_conditions_hold_on_a_dense_board) {
 
     const auto fit = fit_essvi(slices, ts, theta);
     std::printf("       %zu expiries, %d quotes: RMSE %.4f vol points, calendar %s\n",
-                slices.size(), fit.quotes, fit.rmse_vol_points,
+                slices.size(), fit.quotes, fit.rmse_vol,
                 fit.calendar_conditions_hold ? "ok" : "VIOLATED");
     CHECK(fit.calendar_conditions_hold);
-    CHECK(fit.rmse_vol_points < 0.005);
+    CHECK(fit.rmse_vol < 0.005);
     for (const auto& b : fit.butterfly) CHECK(b.free);
 
     // And the conditions hold term by term, which is the actual claim.
