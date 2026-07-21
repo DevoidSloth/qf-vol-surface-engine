@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
-#include <fstream>
+#include <cstdio>
 #include <sstream>
 
 #if defined(_WIN32)
@@ -108,22 +108,44 @@ int run_all(int argc, char** argv) {
     }
 
     if (!out_path.empty()) {
-        std::ofstream f(out_path);
+        // stdio rather than std::ofstream, and not by preference.
+        //
+        // Constructing ANY std::ofstream inside this function -- default
+        // constructed, never opened -- segfaults in the constructor with the
+        // msys2 ucrt64 gcc 15.2 this is developed against. The same
+        // construction in main() a few frames up works, std::ostringstream in
+        // this translation unit works, and the C stdio calls below work, so it
+        // is neither a corrupt heap nor an uninitialised locale. I have not
+        // root-caused it and am not going to pretend otherwise.
+        //
+        // Since every other line of output in this harness already goes through
+        // std::printf, the honest fix is to stop being the one place that does
+        // not. That also removes the <fstream> dependency entirely.
+        //
+        // %.12g, not the default %g: this file gets parsed to build the report,
+        // and six significant figures is enough to lose the distinction between
+        // an error of 1.79856e-14 and one twice that.
+        std::FILE* f = std::fopen(out_path.c_str(), "w");
         if (!f) {
             std::fprintf(stderr, "could not open %s for writing\n", out_path.c_str());
             return 2;
         }
-        f << "{\n  \"environment\": " << environment_json() << ",\n  \"results\": [\n";
+        std::fprintf(f, "{\n  \"environment\": %s,\n  \"results\": [\n",
+                     environment_json().c_str());
         for (size_t i = 0; i < results().size(); ++i) {
             const auto& r = results()[i];
-            f << "    {\"id\": \"" << json_escape(r.id) << "\", "
-              << "\"metric\": \"" << json_escape(r.metric) << "\", "
-              << "\"value\": " << r.value << ", "
-              << "\"unit\": \"" << json_escape(r.unit) << "\", "
-              << "\"note\": \"" << json_escape(r.note) << "\"}"
-              << (i + 1 < results().size() ? "," : "") << "\n";
+            std::fprintf(f,
+                         "    {\"id\": \"%s\", \"metric\": \"%s\", \"value\": %.12g, "
+                         "\"unit\": \"%s\", \"note\": \"%s\"}%s\n",
+                         json_escape(r.id).c_str(), json_escape(r.metric).c_str(), r.value,
+                         json_escape(r.unit).c_str(), json_escape(r.note).c_str(),
+                         i + 1 < results().size() ? "," : "");
         }
-        f << "  ]\n}\n";
+        std::fprintf(f, "  ]\n}\n");
+        if (std::fclose(f) != 0) {
+            std::fprintf(stderr, "could not finish writing %s\n", out_path.c_str());
+            return 2;
+        }
         std::printf("\nwrote %s\n", out_path.c_str());
     }
     return 0;
