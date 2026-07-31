@@ -283,13 +283,17 @@ PYBIND11_MODULE(_vse, m) {
 
     value_type<SliceBuildReport>(m, "SliceBuildReport", "")
         .def_readonly("input_quotes", &SliceBuildReport::input_quotes)
+        .def_readonly("dropped_in_the_money", &SliceBuildReport::dropped_in_the_money)
         .def_readonly("dropped_one_sided", &SliceBuildReport::dropped_one_sided)
         .def_readonly("dropped_cheap", &SliceBuildReport::dropped_cheap)
         .def_readonly("dropped_wide", &SliceBuildReport::dropped_wide)
         .def_readonly("dropped_moneyness", &SliceBuildReport::dropped_moneyness)
         .def_readonly("dropped_liquidity", &SliceBuildReport::dropped_liquidity)
         .def_readonly("dropped_arbitrage", &SliceBuildReport::dropped_arbitrage)
-        .def_readonly("kept", &SliceBuildReport::kept);
+        .def_readonly("kept", &SliceBuildReport::kept)
+        .def("dropped_total", &SliceBuildReport::dropped_total)
+        .def("balances", &SliceBuildReport::balances,
+             "Every input quote landed in exactly one bucket.");
 
     m.def("implied_forward_from_parity", &implied_forward_from_parity, py::arg("calls"),
           py::arg("puts"), py::arg("expiry"), py::arg("anchor"),

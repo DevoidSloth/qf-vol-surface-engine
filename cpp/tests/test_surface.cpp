@@ -342,10 +342,21 @@ TEST(chain, slice_builder_keeps_the_out_of_the_money_side_and_reports_what_it_dr
 
     CHECK(!slice.empty());
     CHECK(rep.kept == int(slice.size()));
-    std::printf("       %d quotes in, %d kept (%d one-sided, %d cheap, %d wide, "
-                "%d moneyness, %d arb)\n",
-                rep.input_quotes, rep.kept, rep.dropped_one_sided, rep.dropped_cheap,
-                rep.dropped_wide, rep.dropped_moneyness, rep.dropped_arbitrage);
+    std::printf("       %d quotes in, %d kept (%d in-the-money, %d one-sided, %d cheap, "
+                "%d wide, %d moneyness, %d arb)\n",
+                rep.input_quotes, rep.kept, rep.dropped_in_the_money, rep.dropped_one_sided,
+                rep.dropped_cheap, rep.dropped_wide, rep.dropped_moneyness,
+                rep.dropped_arbitrage);
+
+    // Every quote lands in exactly one bucket.
+    //
+    // The in-the-money counter exists because of this check. Without it the
+    // report accounted for four of the 269 quotes this slice discards and said
+    // nothing about the other 265, so anyone reading it to find out why a board
+    // came out thin would have concluded the filters were eating quotes
+    // silently -- the exact question the report exists to answer.
+    CHECK(rep.balances());
+    CHECK(rep.dropped_in_the_money > 0);
 
     for (const auto& p : slice) {
         if (p.type == OptionType::Call) CHECK(p.strike >= e.true_forward);

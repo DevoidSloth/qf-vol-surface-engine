@@ -167,6 +167,7 @@ struct FilterConfig {
 
 struct SliceBuildReport {
     int input_quotes = 0;
+    int dropped_in_the_money = 0;   ///< the other half of each strike pair
     int dropped_one_sided = 0;
     int dropped_cheap = 0;
     int dropped_wide = 0;
@@ -174,6 +175,20 @@ struct SliceBuildReport {
     int dropped_liquidity = 0;
     int dropped_arbitrage = 0;   ///< price outside the no-arbitrage bounds
     int kept = 0;
+
+    /// Every input quote must land in exactly one bucket.
+    ///
+    /// This is not decoration. Without it the in-the-money side -- roughly half
+    /// of every board -- disappeared from the report entirely, so a slice that
+    /// kept 56 of 123 quotes accounted for one of the 67 it lost. Anyone using
+    /// the report to work out why a board came out thin would have concluded
+    /// the filters were eating quotes silently, which is exactly the failure it
+    /// exists to rule out.
+    int dropped_total() const {
+        return dropped_in_the_money + dropped_one_sided + dropped_cheap + dropped_wide
+             + dropped_moneyness + dropped_liquidity + dropped_arbitrage;
+    }
+    bool balances() const { return kept + dropped_total() == input_quotes; }
 };
 
 /// Build the fittable points of one expiry.
@@ -198,7 +213,7 @@ inline std::vector<SurfacePoint> build_slice(const std::vector<RawQuote>& quotes
         // Only the out-of-the-money side.
         const bool otm = (q.type == OptionType::Call) ? (q.strike >= forward)
                                                       : (q.strike < forward);
-        if (!otm) continue;
+        if (!otm) { ++rep.dropped_in_the_money; continue; }
 
         if (cfg.require_two_sided && !q.two_sided()) { ++rep.dropped_one_sided; continue; }
         const Real mid = q.mid();
