@@ -1,0 +1,126 @@
+name: ci
+
+# What this is for.
+#
+# The C++ core is developed against one compiler on one machine, and a
+# header-only numerics library is exactly the kind of code that compiles
+# everywhere and is only correct where it was written. Three things break across
+# toolchains and none of them are visible locally:
+#
+#   * -Wall -Wextra -Werror catches the uninitialised member and the signed
+#     comparison that gcc happens to tolerate and clang does not.
+#   * A Debug build with the libstdc++ assertions on catches the container
+#     overrun that a Release build silently reads past.
+#   * UBSan catches the signed overflow and the misaligned load that -O2 turns
+#     into whatever it likes.
+#
+# The benchmarks deliberately do NOT run here. A GitHub runner is a shared,
+# frequency-scaled virtual machine, and a throughput figure measured on one is
+# not a measurement of anything. benchmarks/RESULTS.md is generated on a known
+# machine and carries its environment block with it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Every warning is an error in CI and only in CI. Locally a warning should be
+  # something you can work through; on main it should be something that never
+  # landed.
+  VSE_STRICT: "-Wall -Wextra -Werror -Wshadow -Wconversion -Wno-sign-conversion"
+
+jobs:
+  cxx:
+    name: ${{ matrix.compiler }} ${{ matrix.build_type }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: g++
+            build_type: Release
+          - compiler: g++
+            build_type: Debug
+          - compiler: clang++
+            build_type: Release
+          # Sanitised. Slow, so one configuration rather than four.
+          - compiler: clang++
+            build_type: RelWithDebInfo
+            sanitize: "-fsanitize=undefined,address -fno-omit-frame-pointer"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure
+        run: |
+          cmake -G Ninja -S . -B build \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} \
+            -DVSE_BUILD_PYTHON=OFF \
+            -DCMAKE_CXX_FLAGS="${VSE_STRICT} ${{ matrix.sanitize }}"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        # The suite is deterministic: every random number comes from a seeded
+        # generator, so a failure here is a real failure and not a flake. If this
+        # ever goes intermittent, something is reading uninitialised memory.
+        run: ./build/vse_tests
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          ASAN_OPTIONS: detect_leaks=1
+
+  python:
+    name: python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy pandas scipy matplotlib pytest hypothesis pybind11
+
+      - name: Build the extension
+        run: |
+          cmake -G Ninja -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVSE_BUILD_PYTHON=ON \
+            -DPython_EXECUTABLE="$(which python)"
+          cmake --build build
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: The pipeline runs end to end
+        # Not a numerical check -- cpp/tests and tests/ do that. This catches the
+        # script that imports something it no longer exports, which no unit test
+        # touches and which is the first thing anyone cloning the repo runs.
+        run: python scripts/build_surface.py --compare --no-figures
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install ruff
+      - run: ruff check python scripts tests
+      - run: ruff format --check --diff python scripts tests
