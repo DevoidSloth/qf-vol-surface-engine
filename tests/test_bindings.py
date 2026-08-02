@@ -10,10 +10,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import vsepy
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
-import vsepy
 from vsepy import OptionType
 
 
@@ -50,8 +49,18 @@ def test_argument_order_matches_the_cpp_signature():
 
 def test_greeks_struct_exposes_every_field():
     g = vsepy.bs_greeks(100.0, 105.0, 0.7, 0.03, 0.012, 0.28, OptionType.Call)
-    for field in ("price", "delta", "gamma", "vega", "theta", "rho",
-                  "vanna", "volga", "dual_delta", "dual_gamma"):
+    for field in (
+        "price",
+        "delta",
+        "gamma",
+        "vega",
+        "theta",
+        "rho",
+        "vanna",
+        "volga",
+        "dual_delta",
+        "dual_gamma",
+    ):
         assert isinstance(getattr(g, field), float)
     assert 0.0 < g.delta < 1.0
     assert g.gamma > 0.0
@@ -82,22 +91,22 @@ def test_domain_errors_surface_as_python_exceptions():
 def test_a_whole_chain_inverts_in_one_call():
     F, T, df = 4275.0, 0.37, 0.982
     K = np.linspace(2600.0, 6800.0, 400)
-    sigma = 0.13 + 0.35 * (np.log(F / K) ** 2)          # a crude smile
+    sigma = 0.13 + 0.35 * (np.log(F / K) ** 2)  # a crude smile
     otm_call = K >= F
 
-    px = np.where(otm_call,
-                  vsepy.black76(F, K, T, sigma, df, OptionType.Call),
-                  vsepy.black76(F, K, T, sigma, df, OptionType.Put))
+    px = np.where(
+        otm_call,
+        vsepy.black76(F, K, T, sigma, df, OptionType.Call),
+        vsepy.black76(F, K, T, sigma, df, OptionType.Put),
+    )
 
     # Index, do not np.where. np.where evaluates *both* arguments before
     # selecting, so the call branch would be handed the put prices of every
     # low strike -- prices far below a call's intrinsic value, which the solver
     # correctly rejects as arbitrage. The mask has to be applied to the inputs.
     iv = np.empty_like(K)
-    iv[otm_call] = vsepy.implied_volatility(
-        px[otm_call], F, K[otm_call], T, df, OptionType.Call)
-    iv[~otm_call] = vsepy.implied_volatility(
-        px[~otm_call], F, K[~otm_call], T, df, OptionType.Put)
+    iv[otm_call] = vsepy.implied_volatility(px[otm_call], F, K[otm_call], T, df, OptionType.Call)
+    iv[~otm_call] = vsepy.implied_volatility(px[~otm_call], F, K[~otm_call], T, df, OptionType.Put)
     np.testing.assert_allclose(iv, sigma, rtol=1e-12)
 
 

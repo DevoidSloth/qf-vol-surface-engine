@@ -23,7 +23,7 @@ import sys
 import mpmath as mp
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "python"))
-import vsepy  # noqa: E402
+import vsepy
 
 mp.mp.dps = 60
 
@@ -37,7 +37,7 @@ def ref_erfcx(x):
 
 
 def ref_mills(z):
-    return ref_cdf(-mp.mpf(z)) / (mp.exp(-mp.mpf(z) ** 2 / 2) / mp.sqrt(2 * mp.pi))
+    return ref_cdf(-mp.mpf(z)) / (mp.exp(-(mp.mpf(z) ** 2) / 2) / mp.sqrt(2 * mp.pi))
 
 
 def hart_west_cdf(x: float) -> float:
@@ -53,12 +53,23 @@ def hart_west_cdf(x: float) -> float:
         e = math.exp(-0.5 * ax * ax)
         if ax < 7.07106781186547:
             num = 3.52624965998911e-02 * ax + 0.700383064443688
-            for k in (6.37396220353165, 33.912866078383, 112.079291497871,
-                      221.213596169931, 220.206867912376):
+            for k in (
+                6.37396220353165,
+                33.912866078383,
+                112.079291497871,
+                221.213596169931,
+                220.206867912376,
+            ):
                 num = num * ax + k
             den = 8.83883476483184e-02 * ax + 1.75566716318264
-            for k in (16.064177579207, 86.7807322029461, 296.564248779674,
-                      637.333633378831, 793.826512519948, 440.413735824752):
+            for k in (
+                16.064177579207,
+                86.7807322029461,
+                296.564248779674,
+                637.333633378831,
+                793.826512519948,
+                440.413735824752,
+            ):
                 den = den * ax + k
             c = e * num / den
         else:
@@ -90,8 +101,7 @@ def main() -> None:
 
     print("norm_cdf, relative error by region")
     print(f"  {'region':>18}  {'worst rel':>10}  {'at x':>10}  {'value there':>13}")
-    regions = [(-1, 1), (-3, -1), (-5, -3), (-7.5, -5), (-12, -7.5),
-               (-25, -12), (-37, -25), (1, 8)]
+    regions = [(-1, 1), (-3, -1), (-5, -3), (-7.5, -5), (-12, -7.5), (-25, -12), (-37, -25), (1, 8)]
     for lo, hi in regions:
         w, wx = worst(vsepy.norm_cdf, ref_cdf, span(lo, hi))
         print(f"  {f'[{lo:g}, {hi:g}]':>18}  {w:10.2e}  {wx:10.3f}  {float(ref_cdf(wx)):13.3e}")
@@ -107,9 +117,8 @@ def main() -> None:
         print(f"  {f'[{lo:g}, {hi:g}]':>18}  {w:10.2e}  {wx:10.3f}")
 
     print("\nnorm_inv_cdf, round trip |N(N^-1(p))/p - 1|")
-    ps = [10.0 ** -k for k in range(1, 15)] + [0.25, 0.5, 0.75]
-    w = max(abs(float(mp.mpf(vsepy.norm_cdf(vsepy.norm_inv_cdf(p))) / mp.mpf(p) - 1))
-            for p in ps)
+    ps = [10.0**-k for k in range(1, 15)] + [0.25, 0.5, 0.75]
+    w = max(abs(float(mp.mpf(vsepy.norm_cdf(vsepy.norm_inv_cdf(p))) / mp.mpf(p) - 1)) for p in ps)
     print(f"  worst over p in [1e-14, 0.75]: {w:.2e}")
 
     print("\nfor comparison: Hart/West rational CDF, the usual choice")

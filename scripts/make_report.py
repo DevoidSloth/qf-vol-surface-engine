@@ -23,6 +23,7 @@ import json
 import re
 import subprocess
 import sys
+import textwrap
 import time
 from pathlib import Path
 
@@ -32,8 +33,11 @@ REPORT = REPO / "benchmarks" / "RESULTS.md"
 
 
 def find_binary(name: str) -> Path:
-    for candidate in (REPO / "build" / f"{name}.exe", REPO / "build" / name,
-                      REPO / "build" / "Release" / f"{name}.exe"):
+    for candidate in (
+        REPO / "build" / f"{name}.exe",
+        REPO / "build" / name,
+        REPO / "build" / "Release" / f"{name}.exe",
+    ):
         if candidate.exists():
             return candidate
     raise SystemExit(f"{name} not built; run cmake --build build")
@@ -43,8 +47,9 @@ def run_benchmarks() -> dict:
     binary = find_binary("vse_bench")
     BENCH_JSON.parent.mkdir(parents=True, exist_ok=True)
     print(f"running {binary.name} (this takes a few minutes)...")
-    proc = subprocess.run([str(binary), f"--json={BENCH_JSON}"],
-                          cwd=REPO, capture_output=True, text=True)
+    proc = subprocess.run(
+        [str(binary), f"--json={BENCH_JSON}"], check=False, cwd=REPO, capture_output=True, text=True
+    )
     if proc.returncode != 0:
         sys.stderr.write(proc.stdout[-4000:])
         sys.stderr.write(proc.stderr[-4000:])
@@ -55,15 +60,22 @@ def run_benchmarks() -> dict:
 def run_tests() -> dict:
     binary = find_binary("vse_tests")
     print(f"running {binary.name}...")
-    proc = subprocess.run([str(binary)], cwd=REPO, capture_output=True, text=True)
+    proc = subprocess.run([str(binary)], cwd=REPO, capture_output=True, text=True, check=False)
     tail = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
-    m = re.search(r"(\d+) properties passed, (\d+) failed\s+\((\d+) assertions, "
-                  r"([\d.]+)s\)", tail)
+    m = re.search(
+        r"(\d+) properties passed, (\d+) failed\s+\((\d+) assertions, "
+        r"([\d.]+)s\)",
+        tail,
+    )
     if not m:
         raise SystemExit(f"could not read the test summary from: {tail!r}")
-    return {"passed": int(m.group(1)), "failed": int(m.group(2)),
-            "assertions": int(m.group(3)), "seconds": float(m.group(4)),
-            "exit": proc.returncode}
+    return {
+        "passed": int(m.group(1)),
+        "failed": int(m.group(2)),
+        "assertions": int(m.group(3)),
+        "seconds": float(m.group(4)),
+        "exit": proc.returncode,
+    }
 
 
 def measure_numpy_throughput(n: int = 200_000) -> dict:
@@ -78,7 +90,6 @@ def measure_numpy_throughput(n: int = 200_000) -> dict:
     """
     sys.path.insert(0, str(REPO / "python"))
     import numpy as np
-
     import vsepy
 
     rng = np.random.default_rng(20240614)
@@ -96,15 +107,20 @@ def measure_numpy_throughput(n: int = 200_000) -> dict:
     calls = strike >= forward
     price = np.empty(n)
     for mask, kind in ((calls, vsepy.OptionType.Call), (~calls, vsepy.OptionType.Put)):
-        price[mask] = vsepy.black76(forward, strike[mask], expiry[mask],
-                                    sigma[mask], 1.0, kind)
+        price[mask] = vsepy.black76(forward, strike[mask], expiry[mask], sigma[mask], 1.0, kind)
 
+    # Best of nine, not five. Five put this figure anywhere between 2.0 and 3.3
+    # M/sec across runs, which straddles the top of the target band -- a number
+    # that changes which side of a line it falls on depending on when it was
+    # taken is not a measurement. Best-of rather than mean for the reason the
+    # C++ harness gives: the noise here is one-sided.
     best, recovered = float("inf"), np.empty(n)
-    for _ in range(5):
+    for _ in range(9):
         t0 = time.perf_counter()
         for mask, kind in ((calls, vsepy.OptionType.Call), (~calls, vsepy.OptionType.Put)):
             recovered[mask] = vsepy.implied_volatility(
-                price[mask], forward, strike[mask], expiry[mask], 1.0, kind)
+                price[mask], forward, strike[mask], expiry[mask], 1.0, kind
+            )
         best = min(best, time.perf_counter() - t0)
     error = np.max(np.abs(recovered - sigma) / sigma)
     return {"n": n, "rate_per_sec": n / best, "max_relative_error": float(error)}
@@ -122,9 +138,7 @@ def measure_truth_gap(seed: int = 20240614) -> dict:
     """
     sys.path.insert(0, str(REPO / "python"))
     import numpy as np
-
-    from vsepy import Chain, surface
-    from vsepy import _vse
+    from vsepy import Chain, _vse, surface
 
     config = _vse.SyntheticChainConfig()
     config.seed = seed
@@ -134,16 +148,42 @@ def measure_truth_gap(seed: int = 20240614) -> dict:
     errors = []
     for s in chain:
         k = s.arrays()["log_moneyness"]
-        model = np.sqrt(np.maximum(
-            np.array([fitted.total_variance(float(x), s.expiry) for x in k]), 0) / s.expiry)
-        generating = np.sqrt(np.maximum(
-            np.array([truth.surface.total_variance(float(x), s.expiry) for x in k]), 0)
-            / s.expiry)
+        model = np.sqrt(
+            np.maximum(np.array([fitted.total_variance(float(x), s.expiry) for x in k]), 0)
+            / s.expiry
+        )
+        generating = np.sqrt(
+            np.maximum(np.array([truth.surface.total_variance(float(x), s.expiry) for x in k]), 0)
+            / s.expiry
+        )
         errors.append((model - generating) * 100.0)
     e = np.concatenate(errors)
-    return {"to_quotes": fitted.rmse_vol_points,
-            "to_truth": float(np.sqrt(np.mean(e ** 2))),
-            "quotes": fitted.quotes, "expiries": len(chain)}
+    return {
+        "to_quotes": fitted.rmse_vol_points,
+        "to_truth": float(np.sqrt(np.mean(e**2))),
+        "quotes": fitted.quotes,
+        "expiries": len(chain),
+    }
+
+
+def write_density_figure(seed: int = 20240614) -> None:
+    """The one figure the README embeds, regenerated with the report.
+
+    A checked-in image that nothing regenerates goes stale silently and is
+    eventually a picture of a bug that was fixed a year ago.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    sys.path.insert(0, str(REPO / "python"))
+    from vsepy import Chain, _vse, plots, surface
+
+    config = _vse.SyntheticChainConfig()
+    config.seed = seed
+    chain, _ = Chain.synthetic(config=config)
+    path = REPO / "benchmarks" / "density.png"
+    plots.density(chain, surface.fit(chain, "essvi"), path=path)
+    print(f"wrote {path}")
 
 
 def best_variance_reduction(results):
@@ -182,63 +222,120 @@ def headline_rows(results, tests, numpy_iv, gap):
     """
     mc_name, mc_best = best_variance_reduction(results)
     return [
-        (1, "Implied vol inversion accuracy",
-         f"{get(results, 'iv.accuracy.sigma'):.2e} max relative error, "
-         f"{int(get(results, 'iv.non_converged'))} non-convergent",
-         "< 1e-12", get(results, "iv.accuracy.sigma") < 1e-12),
-        (2, "Implied vol inversion throughput",
-         f"{get(results, 'iv.throughput'):.2f} M/sec single core (C++), "
-         f"{numpy_iv['rate_per_sec'] / 1e6:.2f} M/sec from Python",
-         "8-20 M/sec (C++), 1-3 M (NumPy)",
-         # The Python half meets its target; the C++ half does not, so the row
-         # is flagged. Marking it green on the strength of the easier half is
-         # exactly the sort of thing this report exists not to do.
-         get(results, "iv.throughput") >= 8.0),
-        (3, "Surface calibration fit",
-         f"{get(results, 'surface.essvi.rmse'):.3f} implied vol points, eSSVI, "
-         f"vega-weighted",
-         "0.15-0.35 vol points", 0.15 <= get(results, "surface.essvi.rmse") <= 0.35),
-        (4, "Arbitrage violations",
-         f"{int(get(results, 'surface.essvi.butterfly_violations'))} butterfly, "
-         f"calendar conditions hold "
-         f"({'yes' if get(results, 'surface.essvi.calendar_conditions') else 'NO'})",
-         "0 by construction",
-         get(results, "surface.essvi.butterfly_violations") == 0
-         and get(results, "surface.essvi.calendar_conditions") == 1),
-        (5, "Heston calibration time",
-         f"{get(results, 'heston.calibration.time'):.0f} ms, "
-         f"{int(get(results, 'heston.calibration.iterations'))} LM iterations, "
-         f"5 free parameters",
-         "50-400 ms", 50 <= get(results, "heston.calibration.time") <= 400),
-        (6, "Cross-method agreement",
-         f"quadrature vs PDE {get(results, 'pde.heston.vs_characteristic_function'):.1e}, "
-         f"vs FFT {get(results, 'heston.fft_vs_quadrature'):.1e} relative; "
-         f"MC within {abs(get(results, 'mc.accuracy.control')):.2f} standard errors",
-         "< 1e-6 relative; MC inside 2 se", False),
-        (7, "Monte Carlo variance reduction",
-         f"{mc_best:.0f}x fewer paths at fixed standard error "
-         f"({mc_name}); Sobol alone "
-         f"{get(results, 'mc.variance_reduction.sobol'):.0f}x, "
-         f"control alone {get(results, 'mc.variance_reduction.control'):.0f}x",
-         "20-60x", mc_best >= 20),
-        (8, "American option accuracy",
-         f"{get(results, 'pde.american.error_bp'):.2f} bp from a "
-         f"4001-step lattice",
-         "1-3 bp", get(results, "pde.american.error_bp") <= 3.0),
-        (9, "Longstaff-Schwartz duality gap",
-         f"{get(results, 'lsmc.duality_gap_bp_800'):.0f} bp at 800 inner paths "
-         f"(230 -> 138 -> 67 -> 33 as inner paths double)",
-         "< 5 bp", get(results, "lsmc.duality_gap_bp_800") < 5.0),
-        (10, "AAD Greeks speedup",
-         f"{get(results, 'aad.speedup'):.1f}x bump-and-revalue for "
-         f"{int(get(results, 'aad.factors'))} risk factors, at "
-         f"{get(results, 'aad.overhead'):.2f}x the cost of one price",
-         "8-20x", get(results, "aad.speedup") >= 8.0),
-        (11, "Test coverage of invariants",
-         f"{tests['passed']} properties, {tests['assertions']:,} assertions, "
-         f"{tests['failed']} failures",
-         "40+ properties, 100% pass",
-         tests["passed"] >= 40 and tests["failed"] == 0),
+        (
+            1,
+            "Implied vol inversion accuracy",
+            (
+                f"{get(results, 'iv.accuracy.sigma'):.2e} max relative error, "
+                f"{int(get(results, 'iv.non_converged'))} non-convergent"
+            ),
+            "< 1e-12",
+            get(results, "iv.accuracy.sigma") < 1e-12,
+        ),
+        (
+            2,
+            "Implied vol inversion throughput",
+            (
+                f"{get(results, 'iv.throughput'):.2f} M/sec single core (C++), "
+                f"{numpy_iv['rate_per_sec'] / 1e6:.2f} M/sec from Python"
+            ),
+            "8-20 M/sec (C++), 1-3 M (NumPy)",
+            # The Python half clears its target; the C++ half does not, so the row
+            # is flagged. Marking it green on the strength of the easier half is
+            # exactly the sort of thing this report exists not to do.
+            get(results, "iv.throughput") >= 8.0,
+        ),
+        (
+            3,
+            "Surface calibration fit",
+            (f"{get(results, 'surface.essvi.rmse'):.3f} implied vol points, eSSVI, vega-weighted"),
+            "0.15-0.35 vol points",
+            0.15 <= get(results, "surface.essvi.rmse") <= 0.35,
+        ),
+        (
+            4,
+            "Arbitrage violations",
+            (
+                f"{int(get(results, 'surface.essvi.butterfly_violations'))} butterfly, "
+                f"calendar conditions hold "
+                f"({'yes' if get(results, 'surface.essvi.calendar_conditions') else 'NO'})"
+            ),
+            "0 by construction",
+            get(results, "surface.essvi.butterfly_violations") == 0
+            and get(results, "surface.essvi.calendar_conditions") == 1,
+        ),
+        (
+            5,
+            "Heston calibration time",
+            (
+                f"{get(results, 'heston.calibration.time'):.0f} ms, "
+                f"{int(get(results, 'heston.calibration.iterations'))} LM iterations, "
+                f"5 free parameters"
+            ),
+            "50-400 ms",
+            50 <= get(results, "heston.calibration.time") <= 400,
+        ),
+        (
+            6,
+            "Cross-method agreement",
+            (
+                f"quadrature vs PDE {get(results, 'pde.heston.vs_characteristic_function'):.1e}, "
+                f"vs FFT {get(results, 'heston.fft_vs_quadrature'):.1e} relative; "
+                f"MC within {abs(get(results, 'mc.accuracy.control')):.2f} standard errors"
+            ),
+            "< 1e-6 relative; MC inside 2 se",
+            False,
+        ),
+        (
+            7,
+            "Monte Carlo variance reduction",
+            (
+                f"{mc_best:.0f}x fewer paths at fixed standard error "
+                f"({mc_name}); Sobol alone "
+                f"{get(results, 'mc.variance_reduction.sobol'):.0f}x, "
+                f"control alone {get(results, 'mc.variance_reduction.control'):.0f}x"
+            ),
+            "20-60x",
+            mc_best >= 20,
+        ),
+        (
+            8,
+            "American option accuracy",
+            (f"{get(results, 'pde.american.error_bp'):.2f} bp from a 4001-step lattice"),
+            "1-3 bp",
+            get(results, "pde.american.error_bp") <= 3.0,
+        ),
+        (
+            9,
+            "Longstaff-Schwartz duality gap",
+            (
+                f"{get(results, 'lsmc.duality_gap_bp_800'):.0f} bp at 800 inner paths "
+                f"(230 -> 138 -> 67 -> 33 as inner paths double)"
+            ),
+            "< 5 bp",
+            get(results, "lsmc.duality_gap_bp_800") < 5.0,
+        ),
+        (
+            10,
+            "AAD Greeks speedup",
+            (
+                f"{get(results, 'aad.speedup'):.1f}x bump-and-revalue for "
+                f"{int(get(results, 'aad.factors'))} risk factors, at "
+                f"{get(results, 'aad.overhead'):.2f}x the cost of one price"
+            ),
+            "8-20x",
+            get(results, "aad.speedup") >= 8.0,
+        ),
+        (
+            11,
+            "Test coverage of invariants",
+            (
+                f"{tests['passed']} properties, {tests['assertions']:,} assertions, "
+                f"{tests['failed']} failures"
+            ),
+            "40+ properties, 100% pass",
+            tests["passed"] >= 40 and tests["failed"] == 0,
+        ),
     ]
 
 
@@ -282,10 +379,11 @@ def render(env, results, tests, numpy_iv, gap) -> str:
     w("market data. This is deliberate. A free delayed feed gives quotes that are")
     w("asynchronous across strikes, so a calibration RMSE measured against it is")
     w("partly a measurement of the feed. With a generating surface, fit error and")
-    w("data error can be separated -- and are: on a board of "
-      f"{gap['expiries']} expiries and")
-    w(f"{gap['quotes']:,} quotes the eSSVI fit lands {gap['to_truth']:.3f} vol points from "
-      "the surface that")
+    w(f"data error can be separated -- and are: on a board of {gap['expiries']} expiries and")
+    w(
+        f"{gap['quotes']:,} quotes the eSSVI fit lands {gap['to_truth']:.3f} vol points from "
+        "the surface that"
+    )
     w(f"produced them while sitting {gap['to_quotes']:.3f} from the quotes themselves. Most of")
     w("the apparent fit error is the tick rounding and jitter in the quotes, which")
     w("the fit is correctly averaging out. `scripts/fetch_chain.py` pulls a real")
@@ -323,8 +421,10 @@ def render(env, results, tests, numpy_iv, gap) -> str:
 
     w("## Property tests")
     w("")
-    w(f"{tests['passed']} properties, {tests['assertions']:,} assertions, "
-      f"{tests['failed']} failures, {tests['seconds']:.1f} s.")
+    w(
+        f"{tests['passed']} properties, {tests['assertions']:,} assertions, "
+        f"{tests['failed']} failures, {tests['seconds']:.1f} s."
+    )
     w("")
     w("The invariants checked are the ones that hold for reasons independent of")
     w("this implementation, so a bug cannot satisfy them by agreeing with itself:")
@@ -344,6 +444,23 @@ def render(env, results, tests, numpy_iv, gap) -> str:
     return "\n".join(out) + "\n"
 
 
+def reflow(text: str, width: int = 78) -> str:
+    """Re-wrap paragraphs after interpolation.
+
+    The templates are written wrapped at a sensible width, and then the measured
+    values are substituted in and every line that took one comes out a different
+    length. Markdown flows it either way; the raw file is what gets read in a
+    diff, and a paragraph with a ragged right edge reads as machine output that
+    nobody looked at.
+    """
+    blank = "\n\n"
+    out = []
+    for paragraph in text.split(blank):
+        joined = " ".join(paragraph.split())
+        out.append(textwrap.fill(joined, width=width) if joined else "")
+    return blank.join(out)
+
+
 def _shortfalls(results, numpy_iv) -> str:
     """Say plainly where the measurements miss the targets.
 
@@ -351,58 +468,64 @@ def _shortfalls(results, numpy_iv) -> str:
     first thing a reader who knows the field does is check the numbers that look
     too good, and the second is notice which ones are missing.
     """
-    return "\n".join([
-        "Two rows miss their target and one deserves qualifying.",
-        "",
-        f"**#2, throughput.** {get(results, 'iv.throughput'):.2f} M inversions/sec against a "
-        "target of 8-20 M. The",
-        f"Python half meets its target ({numpy_iv['rate_per_sec'] / 1e6:.2f} M/sec against 1-3 M) "
-        "and the C++ half does not,",
-        "so the row is flagged; a green mark earned on the easier half would be",
-        "worse than no mark at all.",
-        "The algorithm is at its accuracy limit rather than its speed limit: the",
-        f"mean iteration count is {get(results, 'iv.iterations.mean'):.2f}, and each iteration "
-        "evaluates the",
-        "normalised Black function and three derivatives through `erfcx`. Cody's",
-        "rational approximation for `erfcx` is where the time goes, and it is there",
-        "because the cheaper alternatives (Hart, West) measured 2.6e-9 relative error",
-        "at |x| = 7, which would have put row #1 out of reach. Getting to 8 M/sec",
-        "means either a vectorised (AVX) `erfcx` or accepting a worse inversion, and",
-        "the second is not a trade this library should make silently. The number is",
-        "what it is.",
-        "",
-        f"**#9, duality gap.** {get(results, 'lsmc.duality_gap_bp_800'):.0f} bp against a target "
-        "of under 5. The gap is dominated by",
-        "the inner-simulation bias of the Andersen-Broadie upper bound, not by the",
-        "quality of the exercise policy -- which is visible in the way it falls with",
-        "the inner path count: 230, 138, 67, 33 bp as the count doubles from 100 to",
-        f"800. The low-biased estimator alone is within "
-        f"{get(results, 'lsmc.lower_bound_error_bp'):.1f} bp of the",
-        "reference price, so the policy is good; the bound around it is expensive.",
-        "Closing the gap to 5 bp is a matter of inner paths and therefore of compute,",
-        "and the report says so rather than quoting the tightest configuration and",
-        "leaving the cost out.",
-        "",
-        "**#6, cross-method agreement.** The Lewis-integral pricer and the ADI PDE agree",
-        f"to {get(results, 'pde.heston.vs_characteristic_function'):.1e} relative, not 1e-6. "
-        "That is a statement about the PDE, which",
-        "is a 240 x 120 x 200 grid: refining it moves the agreement, and the",
-        "convergence order was checked separately (Douglas 5.1e-2 against Craig-Sneyd",
-        "3.1e-3 on the same grid, consistent with first versus second order in time).",
-        f"The FFT agrees with quadrature to {get(results, 'heston.fft_vs_quadrature'):.1e} "
-        "relative but to",
-        f"{get(results, 'heston.fft.absolute_floor'):.1e} of the forward in absolute terms, "
-        "which is the honest way to",
-        "quote it -- Carr-Madan's error is a fixed absolute floor set by the FFT grid,",
-        "so its relative error is unbounded on cheap options and says more about the",
-        "strike than the method.",
-    ])
+    # Written as one template rather than a list of fragments. The list form
+    # relied on implicit string concatenation to continue a sentence across
+    # entries, which is one missing comma away from silently merging two
+    # paragraphs -- and a benchmark report that quietly drops half a caveat is
+    # the specific failure this section exists to prevent.
+    gap_series = ", ".join(
+        f"{get(results, f'lsmc.duality_gap_bp_{n}'):.0f}" for n in (100, 200, 400, 800)
+    )
+    body = textwrap.dedent(f"""\
+        Three rows miss their targets. None of them is reworded into a success:
+        the first thing a reader who knows the field does is check the numbers
+        that look too good, and the second is notice which ones are missing.
+
+        **#2, throughput.** {get(results, "iv.throughput"):.2f} M inversions/sec against a target
+        of 8-20 M. The Python half clears its target
+        ({numpy_iv["rate_per_sec"] / 1e6:.2f} M/sec against 1-3 M) and the C++ half does not,
+        so the row is flagged; a mark earned on the easier half would be worse
+        than no mark at all. The algorithm is at its accuracy limit rather than
+        its speed limit: the mean iteration count is
+        {get(results, "iv.iterations.mean"):.2f}, and each iteration evaluates the normalised
+        Black function and three derivatives through `erfcx`. Cody's rational
+        approximation is where the time goes, and it is there because the
+        cheaper alternatives (Hart, West) measured 2.6e-9 relative error at
+        |x| = 7 -- reproduce with `python scripts/audit_normal.py` -- which
+        would have put row #1 out of reach. Getting to 8 M/sec means either a
+        vectorised `erfcx` or accepting a worse inversion, and the second is not
+        a trade this library should make silently.
+
+        **#9, duality gap.** {get(results, "lsmc.duality_gap_bp_800"):.0f} bp against a target of
+        under 5. The gap is dominated by the inner-simulation bias of the
+        Andersen-Broadie upper bound, not by the quality of the exercise policy,
+        which is visible in the way it falls as the inner path count doubles
+        from 100 to 800: {gap_series} bp. The low-biased estimator alone is
+        within {get(results, "lsmc.lower_bound_error_bp"):.1f} bp of the reference price, so the
+        policy is good and the bound around it is expensive. Closing the gap is
+        a matter of compute, and saying so is better than quoting the tightest
+        configuration and leaving its cost out.
+
+        **#6, cross-method agreement.** The Lewis-integral pricer and the ADI
+        PDE agree to {get(results, "pde.heston.vs_characteristic_function"):.1e} relative, not
+        1e-6. That is a statement about a 240 x 120 x 200 grid rather than about
+        the method: refining it moves the agreement, and the convergence order
+        was checked separately (Douglas {get(results, "pde.heston.douglas_error"):.1e} against
+        Craig-Sneyd {get(results, "pde.heston.craig_sneyd_error"):.1e} on the same grid,
+        consistent with first against second order in time). The FFT agrees with
+        quadrature to {get(results, "heston.fft_vs_quadrature"):.1e} relative but to
+        {get(results, "heston.fft.absolute_floor"):.1e} of the forward in absolute terms, which
+        is the honest way to quote it: Carr-Madan's error is a fixed absolute
+        floor set by the FFT grid, so its relative error is unbounded on cheap
+        options and says more about the strike than about the method.""")
+    return reflow(body)
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--reuse", action="store_true",
-                        help="reuse benchmarks/results.json instead of re-running")
+    parser.add_argument(
+        "--reuse", action="store_true", help="reuse benchmarks/results.json instead of re-running"
+    )
     parser.add_argument("--out", type=Path, default=REPORT)
     args = parser.parse_args(argv)
 
@@ -416,12 +539,12 @@ def main(argv=None) -> int:
 
     print("measuring the fit against its generating surface...")
     gap = measure_truth_gap()
+    write_density_figure()
 
     text = render(data["environment"], data["results"], tests, numpy_iv, gap)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(text, encoding="utf-8")
-    print(f"wrote {args.out} ({len(text.splitlines())} lines, "
-          f"{len(data['results'])} measurements)")
+    print(f"wrote {args.out} ({len(text.splitlines())} lines, {len(data['results'])} measurements)")
     return 0
 
 

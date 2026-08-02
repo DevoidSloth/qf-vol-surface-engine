@@ -37,12 +37,17 @@ REPO = Path(__file__).resolve().parent.parent
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("ticker")
-    parser.add_argument("--max-expiries", type=int, default=12,
-                        help="nearest N expiries (default 12)")
-    parser.add_argument("--min-days", type=float, default=3.0,
-                        help="skip expiries closer than this; the last days of "
-                             "an option's life are dominated by pin risk and "
-                             "the vols are not comparable to anything")
+    parser.add_argument(
+        "--max-expiries", type=int, default=12, help="nearest N expiries (default 12)"
+    )
+    parser.add_argument(
+        "--min-days",
+        type=float,
+        default=3.0,
+        help="skip expiries closer than this; the last days of "
+        "an option's life are dominated by pin risk and "
+        "the vols are not comparable to anything",
+    )
     parser.add_argument("--max-days", type=float, default=760.0)
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
@@ -51,21 +56,28 @@ def main(argv=None) -> int:
         import pandas as pd
         import yfinance as yf
     except ImportError:
-        print("needs yfinance and pandas:  pip install yfinance pandas",
-              file=sys.stderr)
+        print("needs yfinance and pandas:  pip install yfinance pandas", file=sys.stderr)
         return 2
 
     ticker = yf.Ticker(args.ticker)
     try:
         spot = float(ticker.fast_info["last_price"])
-    except Exception:
+    except (KeyError, TypeError, ValueError):
+        # fast_info is a best-effort cache and is missing or unparseable often
+        # enough to need a fallback. Anything else -- a network failure, an
+        # authentication error -- should propagate: a spot price silently taken
+        # from a different source than the one intended is how a whole board
+        # ends up with the wrong forward.
         history = ticker.history(period="1d")
         if history.empty:
             print(f"no price data for {args.ticker}", file=sys.stderr)
             return 1
         spot = float(history["Close"].iloc[-1])
 
-    asof = _dt.datetime.now().replace(microsecond=0)
+    # Local naive time, matching year_fraction in vsepy.chain: listed equity
+    # options expire at a local exchange close, and attaching UTC here would
+    # make the two disagree by the offset. See that function for the choice.
+    asof = _dt.datetime.now().replace(microsecond=0)  # noqa: DTZ005
     frames = []
     kept = 0
     for date_string in ticker.options:
@@ -77,7 +89,10 @@ def main(argv=None) -> int:
             break
         try:
             board = ticker.option_chain(date_string)
-        except Exception as exc:                      # a single bad expiry
+        except Exception as exc:  # noqa: BLE001 - one bad expiry, not a bad run
+            # Deliberately broad. A vendor returning something unexpected for a
+            # single expiry should cost that expiry and not the other eleven,
+            # and the expiry is named on stderr rather than dropped quietly.
             print(f"  {date_string}: {exc}", file=sys.stderr)
             continue
         for side, marker in ((board.calls, "C"), (board.puts, "P")):
@@ -86,8 +101,9 @@ def main(argv=None) -> int:
             frame["expiry"] = date_string
             frames.append(frame)
         kept += 1
-        print(f"  {date_string}  {days:6.1f}d  "
-              f"{len(board.calls):4d} calls  {len(board.puts):4d} puts")
+        print(
+            f"  {date_string}  {days:6.1f}d  {len(board.calls):4d} calls  {len(board.puts):4d} puts"
+        )
 
     if not frames:
         print("no expiries in range", file=sys.stderr)
@@ -100,15 +116,16 @@ def main(argv=None) -> int:
     out["asof"] = asof.isoformat()
     out["ticker"] = args.ticker.upper()
 
-    path = args.out or (REPO / "data" /
-                        f"{args.ticker.lower()}_{asof:%Y%m%d}.csv")
+    path = args.out or (REPO / "data" / f"{args.ticker.lower()}_{asof:%Y%m%d}.csv")
     path.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(path, index=False)
     print(f"\n{len(out)} rows from {kept} expiries, spot {spot:.2f}")
     print(f"wrote {path}")
-    print("\nnote: delayed, asynchronous quotes. Fine for exercising the "
-          "pipeline;\nthe benchmark numbers are measured on synthetic chains "
-          "with a known truth.")
+    print(
+        "\nnote: delayed, asynchronous quotes. Fine for exercising the "
+        "pipeline;\nthe benchmark numbers are measured on synthetic chains "
+        "with a known truth."
+    )
     return 0
 
 

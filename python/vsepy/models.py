@@ -47,15 +47,21 @@ class ModelFit:
     message: str = ""
 
     def summary(self) -> str:
-        lines = [f"{self.name}: {self.rmse_vol_points:.3f} vol points RMSE, "
-                 f"worst {self.max_error_vol_points:.3f}, {self.quotes} quotes, "
-                 f"{self.iterations} iterations, {self.seconds * 1e3:.0f} ms",
-                 f"  {self.params}",
-                 f"  {'T':>8} {'pts':>5} {'rmse':>8} {'worst':>8} {'atm':>8}"]
+        lines = [
+            (
+                f"{self.name}: {self.rmse_vol_points:.3f} vol points RMSE, "
+                f"worst {self.max_error_vol_points:.3f}, {self.quotes} quotes, "
+                f"{self.iterations} iterations, {self.seconds * 1e3:.0f} ms"
+            ),
+            f"  {self.params}",
+            f"  {'T':>8} {'pts':>5} {'rmse':>8} {'worst':>8} {'atm':>8}",
+        ]
         for e in self.by_expiry:
-            lines.append(f"  {e.expiry:8.4f} {e.n:5d} {e.rmse_vol_points:8.3f} "
-                         f"{e.max_error_vol_points:8.3f} "
-                         f"{e.atm_error_vol_points:+8.3f}")
+            lines.append(
+                f"  {e.expiry:8.4f} {e.n:5d} {e.rmse_vol_points:8.3f} "
+                f"{e.max_error_vol_points:8.3f} "
+                f"{e.atm_error_vol_points:+8.3f}"
+            )
         if self.message:
             lines.append(f"  {self.message}")
         return "\n".join(lines)
@@ -65,8 +71,9 @@ def _calibration_quotes(chain):
     quotes = []
     for s in chain:
         for p in s.points:
-            quotes.append(_vse.CalibrationQuote(s.forward, p.strike, s.expiry,
-                                                p.implied_vol, p.weight))
+            quotes.append(
+                _vse.CalibrationQuote(s.forward, p.strike, s.expiry, p.implied_vol, p.weight)
+            )
     return quotes
 
 
@@ -84,8 +91,7 @@ def _model_vol(price_fn, forward, strike, expiry, option_type):
     return _vse.implied_volatility(price, forward, strike, expiry, 1.0, option_type)
 
 
-def fit_heston(chain, start=None, *, quadrature_order: int = 32,
-               panels: int = 16) -> ModelFit:
+def fit_heston(chain, start=None, *, quadrature_order: int = 32, panels: int = 16) -> ModelFit:
     """Calibrate Heston to the whole board at once.
 
     Whole board, not slice by slice. Heston has five parameters and one process:
@@ -102,18 +108,25 @@ def fit_heston(chain, start=None, *, quadrature_order: int = 32,
     p = result.params
 
     def price(forward, strike, expiry, option_type):
-        return _vse.heston_price(p, forward, strike, expiry, 1.0, option_type,
-                                 quadrature_order, panels)
+        return _vse.heston_price(
+            p, forward, strike, expiry, 1.0, option_type, quadrature_order, panels
+        )
 
     by_expiry = _error_breakdown(chain, price)
-    return ModelFit(name="Heston", params=p,
-                    # The core reports absolute vol; vol points are what a
-                    # desk reads, and the conversion happens once, here.
-                    rmse_vol_points=result.rmse_vol * 100.0,
-                    max_error_vol_points=result.max_error_vol * 100.0,
-                    quotes=result.quotes, seconds=seconds, by_expiry=by_expiry,
-                    iterations=result.iterations, converged=result.converged,
-                    message=result.message)
+    return ModelFit(
+        name="Heston",
+        params=p,
+        # The core reports absolute vol; vol points are what a
+        # desk reads, and the conversion happens once, here.
+        rmse_vol_points=result.rmse_vol * 100.0,
+        max_error_vol_points=result.max_error_vol * 100.0,
+        quotes=result.quotes,
+        seconds=seconds,
+        by_expiry=by_expiry,
+        iterations=result.iterations,
+        converged=result.converged,
+        message=result.message,
+    )
 
 
 def fit_sabr_slice(chain_slice, beta: float = 0.5, *, start=None):
@@ -140,8 +153,7 @@ def fit_sabr_slice(chain_slice, beta: float = 0.5, *, start=None):
     def residual(x):
         rho, nu = np.tanh(x[0]), math.exp(x[1])
         alpha = _vse.sabr_alpha_from_atm(atm, forward, expiry, beta, rho, nu, 0.0)
-        model = _vse.sabr_lognormal_vol(alpha, beta, rho, nu, 0.0, forward,
-                                        strikes, expiry)
+        model = _vse.sabr_lognormal_vol(alpha, beta, rho, nu, 0.0, forward, strikes, expiry)
         return w * (model - vols) * 100.0
 
     x0 = np.array([np.arctanh(-0.3), math.log(0.4)]) if start is None else np.asarray(start)
@@ -155,17 +167,30 @@ def fit_sabr_slice(chain_slice, beta: float = 0.5, *, start=None):
     err = residual(sol.x) / w
     scan = _vse.sabr_density_scan(params, forward, expiry, 0.02, 3.0, 1500, False)
     return ModelFit(
-        name=f"SABR(beta={beta})", params=params,
-        rmse_vol_points=float(np.sqrt(np.mean(err ** 2))),
+        name=f"SABR(beta={beta})",
+        params=params,
+        rmse_vol_points=float(np.sqrt(np.mean(err**2))),
         max_error_vol_points=float(np.max(np.abs(err))),
-        quotes=len(strikes), seconds=seconds,
-        by_expiry=[ExpiryError(expiry, len(strikes),
-                               float(np.sqrt(np.mean(err ** 2))),
-                               float(np.max(np.abs(err))), 0.0)],
-        iterations=int(sol.nfev), converged=sol.success,
-        message=("arbitrage-free over the scanned range" if scan.free else
-                 f"Hagan density goes negative below K={scan.arbitrage_boundary:.2f} "
-                 f"({scan.violations} of {scan.points} grid points)"))
+        quotes=len(strikes),
+        seconds=seconds,
+        by_expiry=[
+            ExpiryError(
+                expiry,
+                len(strikes),
+                float(np.sqrt(np.mean(err**2))),
+                float(np.max(np.abs(err))),
+                0.0,
+            )
+        ],
+        iterations=int(sol.nfev),
+        converged=sol.success,
+        message=(
+            "arbitrage-free over the scanned range"
+            if scan.free
+            else f"Hagan density goes negative below K={scan.arbitrage_boundary:.2f} "
+            f"({scan.violations} of {scan.points} grid points)"
+        ),
+    )
 
 
 def _error_breakdown(chain, price_fn):
@@ -175,12 +200,9 @@ def _error_breakdown(chain, price_fn):
         errors = []
         atm_error = 0.0
         best_atm = float("inf")
-        for k, strike, vol in zip(cols["log_moneyness"], cols["strike"],
-                                  cols["implied_vol"]):
-            option_type = (_vse.OptionType.Call if strike >= s.forward
-                           else _vse.OptionType.Put)
-            model = _model_vol(price_fn, s.forward, float(strike), s.expiry,
-                               option_type)
+        for k, strike, vol in zip(cols["log_moneyness"], cols["strike"], cols["implied_vol"]):
+            option_type = _vse.OptionType.Call if strike >= s.forward else _vse.OptionType.Put
+            model = _model_vol(price_fn, s.forward, float(strike), s.expiry, option_type)
             if not math.isfinite(model):
                 continue
             e = (model - vol) * 100.0
@@ -188,14 +210,21 @@ def _error_breakdown(chain, price_fn):
             if abs(k) < best_atm:
                 best_atm, atm_error = abs(k), e
         errors = np.array(errors)
-        out.append(ExpiryError(s.expiry, len(errors),
-                               float(np.sqrt(np.mean(errors ** 2))),
-                               float(np.max(np.abs(errors))), atm_error))
+        out.append(
+            ExpiryError(
+                s.expiry,
+                len(errors),
+                float(np.sqrt(np.mean(errors**2))),
+                float(np.max(np.abs(errors))),
+                atm_error,
+            )
+        )
     return out
 
 
-def heston_surface_grid(params, forwards, expiries, log_moneyness, *,
-                        order: int = 32, panels: int = 16):
+def heston_surface_grid(
+    params, forwards, expiries, log_moneyness, *, order: int = 32, panels: int = 16
+):
     """Model implied vols on a (k, T) grid, for plotting against the market.
 
     Prices the OTM side at every point and inverts, for the reason given in
@@ -206,10 +235,12 @@ def heston_surface_grid(params, forwards, expiries, log_moneyness, *,
     for i, (T, F) in enumerate(zip(expiries, forwards)):
         for j, kk in enumerate(k):
             strike = F * math.exp(float(kk))
-            option_type = (_vse.OptionType.Call if kk >= 0.0
-                           else _vse.OptionType.Put)
+            option_type = _vse.OptionType.Call if kk >= 0.0 else _vse.OptionType.Put
             grid[i, j] = _model_vol(
-                lambda f, s, t, o: _vse.heston_price(params, f, s, t, 1.0, o,
-                                                     order, panels),
-                F, strike, T, option_type)
+                lambda f, s, t, o: _vse.heston_price(params, f, s, t, 1.0, o, order, panels),
+                F,
+                strike,
+                T,
+                option_type,
+            )
     return grid

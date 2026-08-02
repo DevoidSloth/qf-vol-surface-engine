@@ -36,7 +36,7 @@ chain for anyone who wants to run the pipeline against one.
 | # | Metric | Measured | Target | |
 |---|--------|----------|--------|---|
 | 1 | Implied vol inversion accuracy | 4.66e-15 max relative error, 0 non-convergent | < 1e-12 | yes |
-| 2 | Implied vol inversion throughput | 4.06 M/sec single core (C++), 2.76 M/sec from Python | 8-20 M/sec (C++), 1-3 M (NumPy) | **see below** |
+| 2 | Implied vol inversion throughput | 4.06 M/sec single core (C++), 2.54 M/sec from Python | 8-20 M/sec (C++), 1-3 M (NumPy) | **see below** |
 | 3 | Surface calibration fit | 0.162 implied vol points, eSSVI, vega-weighted | 0.15-0.35 vol points | yes |
 | 4 | Arbitrage violations | 0 butterfly, calendar conditions hold (yes) | 0 by construction | yes |
 | 5 | Heston calibration time | 220 ms, 11 LM iterations, 5 free parameters | 50-400 ms | yes |
@@ -45,44 +45,44 @@ chain for anyone who wants to run the pipeline against one.
 | 8 | American option accuracy | 0.32 bp from a 4001-step lattice | 1-3 bp | yes |
 | 9 | Longstaff-Schwartz duality gap | 33 bp at 800 inner paths (230 -> 138 -> 67 -> 33 as inner paths double) | < 5 bp | **see below** |
 | 10 | AAD Greeks speedup | 9.0x bump-and-revalue for 10 risk factors, at 2.43x the cost of one price | 8-20x | yes |
-| 11 | Test coverage of invariants | 121 properties, 46,000 assertions, 0 failures | 40+ properties, 100% pass | yes |
+| 11 | Test coverage of invariants | 121 properties, 46,002 assertions, 0 failures | 40+ properties, 100% pass | yes |
 
-Two rows miss their target and one deserves qualifying.
+Three rows miss their targets. None of them is reworded into a success: the
+first thing a reader who knows the field does is check the numbers that look
+too good, and the second is notice which ones are missing.
 
 **#2, throughput.** 4.06 M inversions/sec against a target of 8-20 M. The
-Python half meets its target (2.76 M/sec against 1-3 M) and the C++ half does not,
-so the row is flagged; a green mark earned on the easier half would be
-worse than no mark at all.
-The algorithm is at its accuracy limit rather than its speed limit: the
-mean iteration count is 2.42, and each iteration evaluates the
-normalised Black function and three derivatives through `erfcx`. Cody's
-rational approximation for `erfcx` is where the time goes, and it is there
-because the cheaper alternatives (Hart, West) measured 2.6e-9 relative error
-at |x| = 7, which would have put row #1 out of reach. Getting to 8 M/sec
-means either a vectorised (AVX) `erfcx` or accepting a worse inversion, and
-the second is not a trade this library should make silently. The number is
-what it is.
+Python half clears its target (2.54 M/sec against 1-3 M) and the C++ half does
+not, so the row is flagged; a mark earned on the easier half would be worse
+than no mark at all. The algorithm is at its accuracy limit rather than its
+speed limit: the mean iteration count is 2.42, and each iteration evaluates
+the normalised Black function and three derivatives through `erfcx`. Cody's
+rational approximation is where the time goes, and it is there because the
+cheaper alternatives (Hart, West) measured 2.6e-9 relative error at |x| = 7 --
+reproduce with `python scripts/audit_normal.py` -- which would have put row #1
+out of reach. Getting to 8 M/sec means either a vectorised `erfcx` or
+accepting a worse inversion, and the second is not a trade this library should
+make silently.
 
-**#9, duality gap.** 33 bp against a target of under 5. The gap is dominated by
-the inner-simulation bias of the Andersen-Broadie upper bound, not by the
-quality of the exercise policy -- which is visible in the way it falls with
-the inner path count: 230, 138, 67, 33 bp as the count doubles from 100 to
-800. The low-biased estimator alone is within 6.2 bp of the
-reference price, so the policy is good; the bound around it is expensive.
-Closing the gap to 5 bp is a matter of inner paths and therefore of compute,
-and the report says so rather than quoting the tightest configuration and
-leaving the cost out.
+**#9, duality gap.** 33 bp against a target of under 5. The gap is dominated
+by the inner-simulation bias of the Andersen-Broadie upper bound, not by the
+quality of the exercise policy, which is visible in the way it falls as the
+inner path count doubles from 100 to 800: 230, 138, 67, 33 bp. The low-biased
+estimator alone is within 6.2 bp of the reference price, so the policy is good
+and the bound around it is expensive. Closing the gap is a matter of compute,
+and saying so is better than quoting the tightest configuration and leaving
+its cost out.
 
-**#6, cross-method agreement.** The Lewis-integral pricer and the ADI PDE agree
-to 7.0e-04 relative, not 1e-6. That is a statement about the PDE, which
-is a 240 x 120 x 200 grid: refining it moves the agreement, and the
-convergence order was checked separately (Douglas 5.1e-2 against Craig-Sneyd
-3.1e-3 on the same grid, consistent with first versus second order in time).
-The FFT agrees with quadrature to 1.6e-03 relative but to
-5.6e-07 of the forward in absolute terms, which is the honest way to
-quote it -- Carr-Madan's error is a fixed absolute floor set by the FFT grid,
-so its relative error is unbounded on cheap options and says more about the
-strike than the method.
+**#6, cross-method agreement.** The Lewis-integral pricer and the ADI PDE
+agree to 7.0e-04 relative, not 1e-6. That is a statement about a 240 x 120 x
+200 grid rather than about the method: refining it moves the agreement, and
+the convergence order was checked separately (Douglas 5.1e-02 against Craig-
+Sneyd 3.1e-03 on the same grid, consistent with first against second order in
+time). The FFT agrees with quadrature to 1.6e-03 relative but to 5.6e-07 of
+the forward in absolute terms, which is the honest way to quote it: Carr-
+Madan's error is a fixed absolute floor set by the FFT grid, so its relative
+error is unbounded on cheap options and says more about the strike than about
+the method.
 
 ## Full results
 
@@ -236,7 +236,7 @@ strike than the method.
 
 ## Property tests
 
-121 properties, 46,000 assertions, 0 failures, 10.7 s.
+121 properties, 46,002 assertions, 0 failures, 9.4 s.
 
 The invariants checked are the ones that hold for reasons independent of
 this implementation, so a bug cannot satisfy them by agreeing with itself:

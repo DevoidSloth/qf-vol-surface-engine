@@ -39,7 +39,9 @@ except ImportError as exc:  # pragma: no cover - only hit before a build
         f"(original error: {exc})"
     ) from exc
 
-from ._vse import (  # noqa: F401
+from . import chain as _chain_module  # noqa: F401
+from . import models, plots, surface
+from ._vse import (
     ConvergenceError,
     DomainError,
     Exercise,
@@ -67,9 +69,9 @@ from ._vse import (  # noqa: F401
     erf,
     erfc,
     erfcx,
-    heston_carr_madan,
     heston_call_and_gradient,
     heston_call_lewis,
+    heston_carr_madan,
     heston_mc,
     heston_mc_greeks_aad,
     heston_mc_greeks_bump,
@@ -94,14 +96,13 @@ from ._vse import (  # noqa: F401
     sabr_lognormal_vol,
     sabr_normal_vol,
 )
-
-from . import chain as _chain_module  # noqa: F401
-from . import models, plots, surface  # noqa: F401
-from .chain import Chain, Slice, quotes_from_arrays, year_fraction  # noqa: F401
+from .chain import Chain, Slice, quotes_from_arrays, year_fraction
 
 __version__ = _vse.__version__
 
-__all__ = [
+# Grouped by what a reader would look for, not sorted, because an alphabetical
+# list of 60 names is a list nobody reads.
+__all__ = [  # noqa: RUF022
     # pipeline
     "Chain",
     "Slice",

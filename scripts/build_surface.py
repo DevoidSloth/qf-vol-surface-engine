@@ -21,22 +21,27 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "python"))
 
-from vsepy import Chain, models, plots, surface       # noqa: E402
-from vsepy import _vse                                # noqa: E402
+from vsepy import (
+    Chain,
+    _vse,
+    models,
+    plots,
+    surface,
+)
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--csv", type=Path, default=None,
-                        help="a chain from scripts/fetch_chain.py")
+    parser.add_argument(
+        "--csv", type=Path, default=None, help="a chain from scripts/fetch_chain.py"
+    )
     parser.add_argument("--spot", type=float, default=None)
     parser.add_argument("--method", default="essvi", choices=surface.METHODS)
-    parser.add_argument("--compare", action="store_true",
-                        help="fit all three and tabulate")
-    parser.add_argument("--heston", action="store_true",
-                        help="also calibrate Heston to the whole board")
-    parser.add_argument("--sabr", action="store_true",
-                        help="also calibrate SABR to each expiry")
+    parser.add_argument("--compare", action="store_true", help="fit all three and tabulate")
+    parser.add_argument(
+        "--heston", action="store_true", help="also calibrate Heston to the whole board"
+    )
+    parser.add_argument("--sabr", action="store_true", help="also calibrate SABR to each expiry")
     parser.add_argument("--figures", type=Path, default=REPO / "figures")
     parser.add_argument("--no-figures", action="store_true")
     parser.add_argument("--seed", type=int, default=20240614)
@@ -50,8 +55,7 @@ def main(argv=None) -> int:
         config = _vse.SyntheticChainConfig()
         config.seed = args.seed
         chain, truth = Chain.synthetic(config=config)
-        print("using a MANUFACTURED chain with a known ground truth "
-              "(--csv for a real one)\n")
+        print("using a MANUFACTURED chain with a known ground truth (--csv for a real one)\n")
     print(chain.summary())
     if not chain.slices:
         print("\nnothing survived cleaning", file=sys.stderr)
@@ -61,21 +65,29 @@ def main(argv=None) -> int:
     print()
     if args.compare:
         fits = {m: surface.fit(chain, m) for m in surface.METHODS}
-        print(f"  {'method':>6} {'rmse':>8} {'worst':>8} {'spreads':>8} "
-              f"{'ms':>6} {'butterfly':>10} {'calendar':>22}")
+        print(
+            f"  {'method':>6} {'rmse':>8} {'worst':>8} {'spreads':>8} "
+            f"{'ms':>6} {'butterfly':>10} {'calendar':>22}"
+        )
         for name, f in fits.items():
-            cal = ("free" if f.calendar_free
-                   else f"{f.calendar_report.violations} violations, "
-                        f"worst {f.calendar_report.worst_decrease:.2e}")
-            bf = ("free" if f.butterfly_free else
-                  f"min g {min(d.min_g for d in f.diagnostics):+.3f}")
-            print(f"  {name:>6} {f.rmse_vol_points:8.4f} "
-                  f"{f.max_error_vol_points:8.4f} {f.rmse_in_spreads:8.2f} "
-                  f"{f.seconds * 1e3:6.0f} {bf:>10} {cal:>22}")
-        print("\nThe tightest fit is the one that admits arbitrage. That is not "
-              "a coincidence:\nthe extra freedom that buys the last 0.006 vol "
-              "points is freedom to bend the\nsmile into shapes no probability "
-              "distribution can produce.")
+            cal = (
+                "free"
+                if f.calendar_free
+                else f"{f.calendar_report.violations} violations, "
+                f"worst {f.calendar_report.worst_decrease:.2e}"
+            )
+            bf = "free" if f.butterfly_free else f"min g {min(d.min_g for d in f.diagnostics):+.3f}"
+            print(
+                f"  {name:>6} {f.rmse_vol_points:8.4f} "
+                f"{f.max_error_vol_points:8.4f} {f.rmse_in_spreads:8.2f} "
+                f"{f.seconds * 1e3:6.0f} {bf:>10} {cal:>22}"
+            )
+        print(
+            "\nThe tightest fit is the one that admits arbitrage. That is not "
+            "a coincidence:\nthe extra freedom that buys the last 0.006 vol "
+            "points is freedom to bend the\nsmile into shapes no probability "
+            "distribution can produce."
+        )
         fitted = fits[args.method]
     else:
         fitted = surface.fit(chain, args.method)
@@ -83,10 +95,12 @@ def main(argv=None) -> int:
     print(fitted.summary())
 
     control = surface.spline_control(chain)
-    print(f"\ncubic spline control on the {control['expiry']:.3f}y slice: "
-          f"{control['rmse_vol_points']:.4f} vol points RMSE "
-          f"(it interpolates), min g {control['min_g']:.1f}, "
-          f"{control['violations']} of {control['points']} grid points negative")
+    print(
+        f"\ncubic spline control on the {control['expiry']:.3f}y slice: "
+        f"{control['rmse_vol_points']:.4f} vol points RMSE "
+        f"(it interpolates), min g {control['min_g']:.1f}, "
+        f"{control['violations']} of {control['points']} grid points negative"
+    )
 
     if truth is not None:
         _score_against_truth(chain, fitted, truth)
@@ -101,13 +115,16 @@ def main(argv=None) -> int:
         print()
         for s in chain:
             fit = models.fit_sabr_slice(s)
-            print(f"  T={s.expiry:7.4f}  {fit.rmse_vol_points:6.3f} vol points  "
-                  f"rho={fit.params.rho:+.3f} nu={fit.params.nu:.3f}  "
-                  f"{fit.message}")
+            print(
+                f"  T={s.expiry:7.4f}  {fit.rmse_vol_points:6.3f} vol points  "
+                f"rho={fit.params.rho:+.3f} nu={fit.params.nu:.3f}  "
+                f"{fit.message}"
+            )
 
     # ---- figures --------------------------------------------------------
     if not args.no_figures:
         import matplotlib
+
         matplotlib.use("Agg")
         out = args.figures
         plots.smiles(chain, fitted, path=out / "smiles.png")
@@ -137,18 +154,22 @@ def _score_against_truth(chain, fitted, truth):
     errors = []
     for i, s in enumerate(chain):
         k = s.arrays()["log_moneyness"]
-        fitted_vol = np.sqrt(np.maximum(
-            np.array([fitted.total_variance(float(x), s.expiry) for x in k]), 0)
-            / s.expiry)
-        true_vol = np.array([truth.surface.total_variance(float(x), s.expiry)
-                             for x in k])
+        fitted_vol = np.sqrt(
+            np.maximum(np.array([fitted.total_variance(float(x), s.expiry) for x in k]), 0)
+            / s.expiry
+        )
+        true_vol = np.array([truth.surface.total_variance(float(x), s.expiry) for x in k])
         true_vol = np.sqrt(np.maximum(true_vol, 0) / s.expiry)
         errors.append((fitted_vol - true_vol) * 100.0)
     e = np.concatenate(errors)
-    print(f"\nagainst the generating surface: {np.sqrt(np.mean(e ** 2)):.4f} vol "
-          f"points RMSE, worst {np.max(np.abs(e)):.4f}")
-    print("  (the fit is closer to the truth than to the quotes, because the "
-          "quotes carry\n   tick rounding and jitter that the fit averages out)")
+    print(
+        f"\nagainst the generating surface: {np.sqrt(np.mean(e**2)):.4f} vol "
+        f"points RMSE, worst {np.max(np.abs(e)):.4f}"
+    )
+    print(
+        "  (the fit is closer to the truth than to the quotes, because the "
+        "quotes carry\n   tick rounding and jitter that the fit averages out)"
+    )
 
 
 if __name__ == "__main__":

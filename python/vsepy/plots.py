@@ -53,34 +53,57 @@ def smiles(chain, fitted, *, max_panels: int = 8, path=None):
     idx = np.linspace(0, len(chain) - 1, n).round().astype(int)
     cols_n = min(4, n)
     rows = math.ceil(n / cols_n)
-    fig, axes = plt.subplots(rows, cols_n, figsize=(3.4 * cols_n, 2.8 * rows),
-                             squeeze=False)
+    fig, axes = plt.subplots(rows, cols_n, figsize=(3.4 * cols_n, 2.8 * rows), squeeze=False)
     for ax, i in zip(axes.ravel(), idx):
         s = chain[i]
         c = s.arrays()
         k = c["log_moneyness"]
-        ax.fill_between(k, (c["implied_vol"] - c["spread_vol"]) * 100,
-                        (c["implied_vol"] + c["spread_vol"]) * 100,
-                        color="0.85", label="bid-ask")
+        ax.fill_between(
+            k,
+            (c["implied_vol"] - c["spread_vol"]) * 100,
+            (c["implied_vol"] + c["spread_vol"]) * 100,
+            color="0.85",
+            label="bid-ask",
+        )
         is_call = np.array([p.type == _vse.OptionType.Call for p in s.points])
-        ax.plot(k[is_call], c["implied_vol"][is_call] * 100, ".", ms=3,
-                color="#1f77b4", label="OTM calls")
-        ax.plot(k[~is_call], c["implied_vol"][~is_call] * 100, ".", ms=3,
-                color="#2ca02c", label="OTM puts")
+        ax.plot(
+            k[is_call],
+            c["implied_vol"][is_call] * 100,
+            ".",
+            ms=3,
+            color="#1f77b4",
+            label="OTM calls",
+        )
+        ax.plot(
+            k[~is_call],
+            c["implied_vol"][~is_call] * 100,
+            ".",
+            ms=3,
+            color="#2ca02c",
+            label="OTM puts",
+        )
         grid = np.linspace(k.min(), k.max(), 400)
-        ax.plot(grid, np.sqrt(np.maximum(_eval_svi(fitted.slices[i], grid), 0)
-                              / s.expiry) * 100, "-", lw=1.2, color="#d62728",
-                label=fitted.method)
-        ax.set_title(f"T = {s.expiry:.3f}y ({s.expiry * 365:.0f}d), F = {s.forward:.1f}",
-                     fontsize=8)
+        ax.plot(
+            grid,
+            np.sqrt(np.maximum(_eval_svi(fitted.slices[i], grid), 0) / s.expiry) * 100,
+            "-",
+            lw=1.2,
+            color="#d62728",
+            label=fitted.method,
+        )
+        ax.set_title(
+            f"T = {s.expiry:.3f}y ({s.expiry * 365:.0f}d), F = {s.forward:.1f}", fontsize=8
+        )
         ax.set_xlabel("k = ln(K/F)")
         ax.set_ylabel("implied vol (%)")
     for ax in axes.ravel()[n:]:
         ax.axis("off")
     axes.ravel()[0].legend(fontsize=7, loc="best")
-    fig.suptitle(f"{fitted.method.upper()} fit -- {fitted.rmse_vol_points:.3f} vol "
-                 f"points RMSE, {fitted.rmse_in_spreads:.2f} bid-ask spreads",
-                 fontsize=10)
+    fig.suptitle(
+        f"{fitted.method.upper()} fit -- {fitted.rmse_vol_points:.3f} vol "
+        f"points RMSE, {fitted.rmse_in_spreads:.2f} bid-ask spreads",
+        fontsize=10,
+    )
     fig.tight_layout()
     return _finish(fig, path)
 
@@ -100,8 +123,7 @@ def residuals(chain, fitted, *, path=None):
     all_k, all_r, all_t = [], [], []
     for i, s in enumerate(chain):
         c = s.arrays()
-        model = np.sqrt(np.maximum(_eval_svi(fitted.slices[i],
-                                             c["log_moneyness"]), 0) / s.expiry)
+        model = np.sqrt(np.maximum(_eval_svi(fitted.slices[i], c["log_moneyness"]), 0) / s.expiry)
         r = (model - c["implied_vol"]) / np.maximum(c["spread_vol"], 1e-12)
         all_k.append(c["log_moneyness"])
         all_r.append(r)
@@ -130,8 +152,7 @@ def residuals(chain, fitted, *, path=None):
     return _finish(fig, path)
 
 
-def density(chain, fitted, *, slice_index: int = -1, path=None,
-            compare_spline: bool = True):
+def density(chain, fitted, *, slice_index: int = -1, path=None, compare_spline: bool = True):
     """THE figure. Durrleman's g and the risk-neutral density.
 
     A surface is arbitrage-free iff g(k) >= 0 everywhere, and g is built from
@@ -160,8 +181,7 @@ def density(chain, fitted, *, slice_index: int = -1, path=None,
     # quoted region is shaded so the extrapolation is visible AS extrapolation.
     half = 6.0 * math.sqrt(max(raw.total_variance(0.0), 1e-10))
     for _ in range(3):
-        half = 6.0 * math.sqrt(max(raw.total_variance(half),
-                                   raw.total_variance(-half), 1e-10))
+        half = 6.0 * math.sqrt(max(raw.total_variance(half), raw.total_variance(-half), 1e-10))
     k = np.linspace(-half, half, 1200)
 
     g = np.array([_vse.durrleman_g(raw, float(x)) for x in k])
@@ -171,11 +191,21 @@ def density(chain, fitted, *, slice_index: int = -1, path=None,
     ax1.plot(k, g, lw=1.4, color="#d62728", label=f"{fitted.method}")
     ax2.plot(k, p, lw=1.4, color="#d62728", label=f"{fitted.method}")
     if compare_spline:
+        # scipy is an optional dependency and the overlay is a comparison, not
+        # the figure. Narrow to ImportError deliberately: a numerical failure in
+        # the spline is a bug worth seeing, and swallowing it here would leave
+        # the panel silently missing the line that makes the whole argument.
         try:
             sp = spline_control(chain, i, points=1200)
-            ax1.plot(sp["k"], sp["g"], lw=1.0, color="#1f77b4", alpha=0.85,
-                     label=f"cubic spline ({sp['violations']} violations)")
-        except Exception:                             # scipy missing, say
+            ax1.plot(
+                sp["k"],
+                sp["g"],
+                lw=1.0,
+                color="#1f77b4",
+                alpha=0.85,
+                label=f"cubic spline ({sp['violations']} violations)",
+            )
+        except ImportError:
             compare_spline = False
     d = fitted.diagnostics[i]
     for ax in (ax1, ax2):
@@ -186,9 +216,14 @@ def density(chain, fitted, *, slice_index: int = -1, path=None,
     ax1.set_title("Durrleman's g -- negative anywhere means butterfly arbitrage")
     if d.min_g < 0:
         ax1.plot([d.k_at_min], [d.min_g], "v", ms=7, color="#d62728")
-        ax1.annotate(f"min g = {d.min_g:.3f}", (d.k_at_min, d.min_g),
-                     textcoords="offset points", xytext=(4, -12), fontsize=7,
-                     color="#d62728")
+        ax1.annotate(
+            f"min g = {d.min_g:.3f}",
+            (d.k_at_min, d.min_g),
+            textcoords="offset points",
+            xytext=(4, -12),
+            fontsize=7,
+            color="#d62728",
+        )
     ax1.legend(fontsize=7)
     ax1.set_ylim(min(-0.5, float(np.min(g)) * 1.2), max(2.0, float(np.max(g)) * 1.2))
 
@@ -216,8 +251,9 @@ def total_variance_term_structure(chain, fitted, *, path=None):
         ax.plot(times, w, "o-", ms=3, lw=1.1, label=f"k = {k:+.1f}")
         if bad.any():
             for j in np.flatnonzero(bad):
-                ax.plot(times[j:j + 2], w[j:j + 2], "-", lw=3, color="#d62728",
-                        alpha=0.6, zorder=0)
+                ax.plot(
+                    times[j : j + 2], w[j : j + 2], "-", lw=3, color="#d62728", alpha=0.6, zorder=0
+                )
     ax.set_xscale("log")
     ax.set_xlabel("expiry (y)")
     ax.set_ylabel("total variance w = sigma^2 T")
@@ -245,13 +281,20 @@ def surface_3d(chain, fitted, *, path=None):
     K, T = np.meshgrid(k, t)
     V = np.array([[float(fitted.implied_vol(kk, tt)) for kk in k] for tt in t]) * 100
 
-    ax.plot_surface(K, T, V, cmap="viridis", alpha=0.85, linewidth=0,
-                    rstride=1, cstride=1, antialiased=True)
+    ax.plot_surface(
+        K, T, V, cmap="viridis", alpha=0.85, linewidth=0, rstride=1, cstride=1, antialiased=True
+    )
     for s in chain:
         c = s.arrays()
-        ax.scatter(c["log_moneyness"], np.full(s.n, s.expiry),
-                   c["implied_vol"] * 100, s=1.5, color="k", alpha=0.35,
-                   depthshade=False)
+        ax.scatter(
+            c["log_moneyness"],
+            np.full(s.n, s.expiry),
+            c["implied_vol"] * 100,
+            s=1.5,
+            color="k",
+            alpha=0.35,
+            depthshade=False,
+        )
     ax.set_xlabel("k = ln(K/F)")
     ax.set_ylabel("expiry (y)")
     ax.set_zlabel("implied vol (%)")
@@ -276,40 +319,52 @@ def model_vs_market(chain, model_fit, *, max_panels: int = 8, path=None):
     idx = np.linspace(0, len(chain) - 1, n).round().astype(int)
     cols_n = min(4, n)
     rows = math.ceil(n / cols_n)
-    fig, axes = plt.subplots(rows, cols_n, figsize=(3.4 * cols_n, 2.8 * rows),
-                             squeeze=False)
+    fig, axes = plt.subplots(rows, cols_n, figsize=(3.4 * cols_n, 2.8 * rows), squeeze=False)
     p = model_fit.params
     for ax, i in zip(axes.ravel(), idx):
         s = chain[i]
         c = s.arrays()
-        ax.plot(c["log_moneyness"], c["implied_vol"] * 100, ".", ms=3,
-                color="0.35", label="market")
+        ax.plot(c["log_moneyness"], c["implied_vol"] * 100, ".", ms=3, color="0.35", label="market")
         grid = np.linspace(c["log_moneyness"].min(), c["log_moneyness"].max(), 120)
         vols = []
         for kk in grid:
             strike = s.forward * math.exp(float(kk))
             ot = _vse.OptionType.Call if kk >= 0 else _vse.OptionType.Put
-            vols.append(_model_vol(
-                lambda f, k_, t_, o: _vse.heston_price(p, f, k_, t_, 1.0, o, 32, 16),
-                s.forward, strike, s.expiry, ot))
-        ax.plot(grid, np.array(vols) * 100, "-", lw=1.2, color="#ff7f0e",
-                label=model_fit.name)
+            vols.append(
+                _model_vol(
+                    lambda f, k_, t_, o: _vse.heston_price(p, f, k_, t_, 1.0, o, 32, 16),
+                    s.forward,
+                    strike,
+                    s.expiry,
+                    ot,
+                )
+            )
+        ax.plot(grid, np.array(vols) * 100, "-", lw=1.2, color="#ff7f0e", label=model_fit.name)
         e = model_fit.by_expiry[i]
-        ax.set_title(f"T = {s.expiry:.3f}y -- {e.rmse_vol_points:.2f} pts RMSE",
-                     fontsize=8)
+        ax.set_title(f"T = {s.expiry:.3f}y -- {e.rmse_vol_points:.2f} pts RMSE", fontsize=8)
         ax.set_xlabel("k = ln(K/F)")
         ax.set_ylabel("implied vol (%)")
     for ax in axes.ravel()[n:]:
         ax.axis("off")
     axes.ravel()[0].legend(fontsize=7)
-    fig.suptitle(f"{model_fit.name} calibrated to the whole board -- "
-                 f"{model_fit.rmse_vol_points:.3f} vol points RMSE", fontsize=10)
+    fig.suptitle(
+        f"{model_fit.name} calibrated to the whole board -- "
+        f"{model_fit.rmse_vol_points:.3f} vol points RMSE",
+        fontsize=10,
+    )
     fig.tight_layout()
     return _finish(fig, path)
 
 
-def convergence(results, *, xlabel="steps", ylabel="absolute error",
-                title="", path=None, reference_slopes=(1, 2)):
+def convergence(
+    results,
+    *,
+    xlabel="steps",
+    ylabel="absolute error",
+    title="",
+    path=None,
+    reference_slopes=(1, 2),
+):
     """Log-log error against work, with reference slopes.
 
     A convergence plot without reference slopes is decoration. The claim being
@@ -321,13 +376,20 @@ def convergence(results, *, xlabel="steps", ylabel="absolute error",
     fig, ax = plt.subplots(figsize=(5.5, 4))
     for label, (x, err) in results.items():
         ax.loglog(x, err, "o-", ms=4, lw=1.2, label=label)
-    x0 = np.array([min(min(x) for x, _ in results.values()),
-                   max(max(x) for x, _ in results.values())], dtype=float)
+    x0 = np.array(
+        [min(min(x) for x, _ in results.values()), max(max(x) for x, _ in results.values())],
+        dtype=float,
+    )
     y0 = max(max(e) for _, e in results.values())
     for slope in reference_slopes:
         ax.loglog(x0, y0 * (x0 / x0[0]) ** (-slope), "--", lw=0.8, color="0.5")
-        ax.annotate(f"slope -{slope}", (x0[-1], y0 * (x0[-1] / x0[0]) ** (-slope)),
-                    fontsize=7, color="0.4", ha="right")
+        ax.annotate(
+            f"slope -{slope}",
+            (x0[-1], y0 * (x0[-1] / x0[0]) ** (-slope)),
+            fontsize=7,
+            color="0.4",
+            ha="right",
+        )
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_title(title, fontsize=10)

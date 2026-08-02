@@ -18,10 +18,8 @@ import math
 
 import numpy as np
 import pytest
-
 import vsepy
-from vsepy import Chain, models, surface
-from vsepy import _vse
+from vsepy import Chain, _vse, models, surface
 
 
 @pytest.fixture(scope="module")
@@ -35,6 +33,7 @@ def board():
 # ---------------------------------------------------------------------------
 # Chain cleaning
 # ---------------------------------------------------------------------------
+
 
 def test_the_forward_is_recovered_from_parity_not_assumed(board):
     """The parity regression must find the true forward and discount factor.
@@ -72,7 +71,8 @@ def test_the_cleaning_report_accounts_for_every_quote(board):
     for s in chain:
         r = s.report
         assert r.balances(), (
-            f"{r.input_quotes} in, {r.kept} kept, {r.dropped_total()} accounted for")
+            f"{r.input_quotes} in, {r.kept} kept, {r.dropped_total()} accounted for"
+        )
         assert r.kept == s.n
         # The in-the-money side is roughly half of every board and has to be
         # counted, not merely skipped.
@@ -82,8 +82,8 @@ def test_the_cleaning_report_accounts_for_every_quote(board):
 def test_an_expiry_that_cannot_be_fitted_is_named_not_dropped_silently():
     """A board that quietly loses its front month is worse than one that says so."""
     quotes = vsepy.quotes_from_arrays(
-        strikes=[100.0, 110.0], bids=[1.0, 0.5], asks=[1.2, 0.7],
-        types=["C", "C"])                       # calls only: no parity pairs
+        strikes=[100.0, 110.0], bids=[1.0, 0.5], asks=[1.2, 0.7], types=["C", "C"]
+    )  # calls only: no parity pairs
     chain = Chain.build({0.25: quotes}, spot=100.0)
     assert len(chain) == 0
     assert len(chain.rejected) == 1
@@ -95,6 +95,7 @@ def test_an_expiry_that_cannot_be_fitted_is_named_not_dropped_silently():
 # ---------------------------------------------------------------------------
 # Surface calibration
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("method", ["essvi", "ssvi"])
 def test_the_structural_parameterisations_are_arbitrage_free(board, method):
@@ -143,7 +144,8 @@ def test_per_slice_svi_gives_up_the_guarantee(board):
     assert not (svi.calendar_free and svi.butterfly_free), (
         "per-slice SVI came out arbitrage-free on this board. The seed may need "
         "changing, but do not weaken the assertion: the claim is that nothing "
-        "in the parameterisation prevents the failure, not that it always fails")
+        "in the parameterisation prevents the failure, not that it always fails"
+    )
     assert svi.calendar_report.violations > 0 or not svi.butterfly_free
 
 
@@ -192,6 +194,7 @@ def test_fit_rejects_an_unknown_method(board):
 # Model calibration
 # ---------------------------------------------------------------------------
 
+
 def test_heston_misses_the_short_end_and_the_report_shows_it(board):
     """A model limitation, reported rather than averaged away.
 
@@ -217,8 +220,9 @@ def test_the_reported_aggregate_matches_the_per_expiry_breakdown(board):
     """
     chain, _ = board
     fit = models.fit_heston(chain)
-    weighted = math.sqrt(sum(e.n * e.rmse_vol_points ** 2 for e in fit.by_expiry)
-                         / sum(e.n for e in fit.by_expiry))
+    weighted = math.sqrt(
+        sum(e.n * e.rmse_vol_points**2 for e in fit.by_expiry) / sum(e.n for e in fit.by_expiry)
+    )
     assert fit.rmse_vol_points == pytest.approx(weighted, rel=0.35)
 
 
@@ -235,6 +239,7 @@ def test_sabr_fits_one_slice_and_reports_its_arbitrage_boundary(board):
 # Figures
 # ---------------------------------------------------------------------------
 
+
 def test_every_figure_renders(board, tmp_path):
     """Not a check that the plots are right -- a check that they run.
 
@@ -247,11 +252,13 @@ def test_every_figure_renders(board, tmp_path):
 
     chain, _ = board
     fitted = surface.fit(chain, "essvi")
-    for name, fn in (("smiles", plots.smiles),
-                     ("residuals", plots.residuals),
-                     ("density", plots.density),
-                     ("term", plots.total_variance_term_structure),
-                     ("surface", plots.surface_3d)):
+    for name, fn in (
+        ("smiles", plots.smiles),
+        ("residuals", plots.residuals),
+        ("density", plots.density),
+        ("term", plots.total_variance_term_structure),
+        ("surface", plots.surface_3d),
+    ):
         path = tmp_path / f"{name}.png"
         fn(chain, fitted, path=path)
         assert path.exists() and path.stat().st_size > 5000

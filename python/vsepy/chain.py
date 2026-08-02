@@ -16,7 +16,6 @@ import datetime as _dt
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import numpy as np
 
@@ -61,7 +60,11 @@ def year_fraction(expiry, asof=None) -> float:
     if isinstance(expiry, _dt.date) and not isinstance(expiry, _dt.datetime):
         expiry = _dt.datetime.combine(expiry, _dt.time(16, 0))
     if asof is None:
-        asof = _dt.datetime.now()
+        # Naive local time on purpose. An expiry is a local exchange close, and
+        # a tz-aware "now" against a naive expiry raises; making both aware
+        # would need the exchange's zone, which the caller has and this function
+        # does not. Pass an aware `asof` with an aware `expiry` and it works.
+        asof = _dt.datetime.now()  # noqa: DTZ005
     if isinstance(asof, _dt.date) and not isinstance(asof, _dt.datetime):
         asof = _dt.datetime.combine(asof, _dt.time(16, 0))
     return (expiry - asof).total_seconds() / 86400.0 / _YEAR
@@ -75,8 +78,8 @@ class Slice:
     forward: float
     discount: float
     points: list = field(repr=False)
-    fit: object = field(repr=False, default=None)      # _vse.ForwardFit
-    report: object = field(repr=False, default=None)   # _vse.SliceBuildReport
+    fit: object = field(repr=False, default=None)  # _vse.ForwardFit
+    report: object = field(repr=False, default=None)  # _vse.SliceBuildReport
     label: str = ""
 
     @property
@@ -93,14 +96,22 @@ class Slice:
 
     def arrays(self):
         """Columns as NumPy arrays, for fitting and plotting."""
-        names = ("log_moneyness", "strike", "implied_vol", "total_variance",
-                 "vega", "spread_vol", "weight")
-        return {name: np.array([getattr(p, name) for p in self.points])
-                for name in names}
+        names = (
+            "log_moneyness",
+            "strike",
+            "implied_vol",
+            "total_variance",
+            "vega",
+            "spread_vol",
+            "weight",
+        )
+        return {name: np.array([getattr(p, name) for p in self.points]) for name in names}
 
     def __repr__(self) -> str:
-        return (f"Slice(T={self.expiry:.4f}y, F={self.forward:.2f}, "
-                f"df={self.discount:.6f}, n={self.n}, atm={self.atm_vol:.2%})")
+        return (
+            f"Slice(T={self.expiry:.4f}y, F={self.forward:.2f}, "
+            f"df={self.discount:.6f}, n={self.n}, atm={self.atm_vol:.2%})"
+        )
 
 
 @dataclass
@@ -144,8 +155,17 @@ class Chain:
         return sum(s.n for s in self.slices)
 
     @classmethod
-    def build(cls, quotes_by_expiry, spot, *, filters=None, asof=None, source="",
-              moneyness_window=0.10, min_points=5):
+    def build(
+        cls,
+        quotes_by_expiry,
+        spot,
+        *,
+        filters=None,
+        asof=None,
+        source="",
+        moneyness_window=0.10,
+        min_points=5,
+    ):
         """Clean a board and reduce it to fittable points.
 
         `quotes_by_expiry` maps an expiry in years to a sequence of RawQuote.
@@ -171,23 +191,28 @@ class Chain:
                 rejected.append((expiry, "expired"))
                 continue
             calls, puts = _vse.split_by_type(quotes)
-            fit = _vse.implied_forward_from_parity(calls, puts, expiry, spot,
-                                                   moneyness_window)
+            fit = _vse.implied_forward_from_parity(calls, puts, expiry, spot, moneyness_window)
             if not fit.ok:
-                rejected.append((expiry, f"parity regression failed on "
-                                         f"{fit.pairs_used} pairs"))
+                rejected.append((expiry, (f"parity regression failed on {fit.pairs_used} pairs")))
                 continue
-            points, report = _vse.build_slice(quotes, fit.forward, expiry,
-                                              fit.discount, filters)
+            points, report = _vse.build_slice(quotes, fit.forward, expiry, fit.discount, filters)
             if len(points) < min_points:
-                rejected.append((expiry, f"{len(points)} points survived filtering "
-                                         f"of {report.input_quotes}"))
+                rejected.append(
+                    (expiry, (f"{len(points)} points survived filtering of {report.input_quotes}"))
+                )
                 continue
-            built.append(Slice(expiry=expiry, forward=fit.forward,
-                               discount=fit.discount, points=points, fit=fit,
-                               report=report, label=f"{expiry * _YEAR:.0f}d"))
-        return cls(slices=built, spot=spot, asof=asof, source=source,
-                   rejected=rejected)
+            built.append(
+                Slice(
+                    expiry=expiry,
+                    forward=fit.forward,
+                    discount=fit.discount,
+                    points=points,
+                    fit=fit,
+                    report=report,
+                    label=f"{expiry * _YEAR:.0f}d",
+                )
+            )
+        return cls(slices=built, spot=spot, asof=asof, source=source, rejected=rejected)
 
     @classmethod
     def from_frame(cls, df, spot, *, asof=None, **kwargs):
@@ -197,13 +222,14 @@ class Chain:
         expiry either as a year fraction or as a date. volume and open_interest
         are used when present.
         """
-        renamed = {c: _COLUMN_ALIASES.get(str(c).lower().replace(" ", ""), c)
-                   for c in df.columns}
+        renamed = {c: _COLUMN_ALIASES.get(str(c).lower().replace(" ", ""), c) for c in df.columns}
         df = df.rename(columns=renamed)
         missing = {"strike", "bid", "ask", "type", "expiry"} - set(df.columns)
         if missing:
-            raise ValueError(f"chain is missing columns {sorted(missing)}; "
-                             f"present: {sorted(map(str, df.columns))}")
+            raise ValueError(
+                f"chain is missing columns {sorted(missing)}; "
+                f"present: {sorted(map(str, df.columns))}"
+            )
 
         column = df["expiry"]
         if np.issubdtype(column.dtype, np.number):
@@ -235,8 +261,7 @@ class Chain:
         asof = kwargs.pop("asof", None)
         if asof is None and "asof" in df.columns:
             asof = _dt.datetime.fromisoformat(str(df["asof"].iloc[0]))
-        return cls.from_frame(df, spot, asof=asof, source=str(Path(path).name),
-                              **kwargs)
+        return cls.from_frame(df, spot, asof=asof, source=str(Path(path).name), **kwargs)
 
     @classmethod
     def synthetic(cls, expiries=None, config=None, **kwargs):
@@ -256,18 +281,25 @@ class Chain:
         return chain, generated.truth
 
     def summary(self) -> str:
-        head = (f"chain {self.source or 'unnamed'}: spot {self.spot:.2f}, "
-                f"{len(self.slices)} expiries, {self.total_points} points")
-        lines = [head,
-                 f"  {'T':>8} {'days':>5} {'forward':>10} {'discount':>9} "
-                 f"{'rate':>7} {'pts':>5} {'atm':>7} {'kept/in':>10} {'rms':>8}"]
+        head = (
+            f"chain {self.source or 'unnamed'}: spot {self.spot:.2f}, "
+            f"{len(self.slices)} expiries, {self.total_points} points"
+        )
+        lines = [
+            head,
+            (
+                f"  {'T':>8} {'days':>5} {'forward':>10} {'discount':>9} "
+                f"{'rate':>7} {'pts':>5} {'atm':>7} {'kept/in':>10} {'rms':>8}"
+            ),
+        ]
         for s in self.slices:
             r = s.report
             lines.append(
                 f"  {s.expiry:8.4f} {s.expiry * _YEAR:5.0f} {s.forward:10.2f} "
                 f"{s.discount:9.6f} {s.fit.implied_rate:6.2%} {s.n:5d} "
                 f"{s.atm_vol:7.2%} {r.kept:5d}/{r.input_quotes:<4d} "
-                f"{s.fit.residual_rms:8.2e}")
+                f"{s.fit.residual_rms:8.2e}"
+            )
         for expiry, why in self.rejected:
             lines.append(f"  dropped {expiry * _YEAR:.0f}d: {why}")
         return "\n".join(lines)
@@ -285,17 +317,14 @@ def parse_type(value):
     raise ValueError(f"cannot read {value!r} as an option type")
 
 
-def quotes_from_arrays(strikes, bids, asks, types, volumes=None,
-                       open_interest=None):
+def quotes_from_arrays(strikes, bids, asks, types, volumes=None, open_interest=None):
     """Assemble RawQuotes without going through pandas."""
     strikes = np.asarray(list(strikes), dtype=float)
     n = len(strikes)
     volumes = np.zeros(n) if volumes is None else np.asarray(list(volumes), float)
-    open_interest = (np.zeros(n) if open_interest is None
-                     else np.asarray(list(open_interest), float))
+    open_interest = np.zeros(n) if open_interest is None else np.asarray(list(open_interest), float)
     out = []
-    for k, b, a, t, v, oi in zip(strikes, bids, asks, types, volumes,
-                                 open_interest):
+    for k, b, a, t, v, oi in zip(strikes, bids, asks, types, volumes, open_interest):
         q = _vse.RawQuote()
         q.strike, q.bid, q.ask = float(k), float(b), float(a)
         q.volume, q.open_interest = float(v), float(oi)

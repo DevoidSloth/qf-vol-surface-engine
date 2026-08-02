@@ -61,7 +61,7 @@ class FittedSurface:
     method: str
     model: object = field(repr=False, default=None)
     expiries: list = field(default_factory=list)
-    slices: list = field(repr=False, default_factory=list)      # raw SVI per expiry
+    slices: list = field(repr=False, default_factory=list)  # raw SVI per expiry
     diagnostics: list = field(repr=False, default_factory=list)
     rmse_vol_points: float = float("nan")
     max_error_vol_points: float = float("nan")
@@ -79,8 +79,7 @@ class FittedSurface:
         """w(k, T). Broadcasts over k."""
         k = np.asarray(k, dtype=float)
         if self.method in ("ssvi", "essvi"):
-            f = np.vectorize(lambda kk: self.model.total_variance(float(kk),
-                                                                  float(expiry)))
+            f = np.vectorize(lambda kk: self.model.total_variance(float(kk), float(expiry)))
             return f(k) if k.ndim else float(f(k))
         # Per-slice SVI: interpolate in total variance between bracketing
         # expiries, which is the only interpolation that cannot manufacture a
@@ -115,15 +114,22 @@ class FittedSurface:
 
     # -- reporting -------------------------------------------------------
     def summary(self) -> str:
-        arb = ("arbitrage-free" if (self.calendar_free and self.butterfly_free)
-               else "ARBITRAGE PRESENT")
+        arb = (
+            "arbitrage-free"
+            if (self.calendar_free and self.butterfly_free)
+            else "ARBITRAGE PRESENT"
+        )
         lines = [
-            f"{self.method} fit: {self.rmse_vol_points:.4f} vol points RMSE, "
-            f"worst {self.max_error_vol_points:.4f}, "
-            f"{self.rmse_in_spreads:.2f} bid-ask spreads, "
-            f"{self.quotes} quotes, {self.seconds * 1e3:.0f} ms -- {arb}",
-            f"  {'T':>8} {'pts':>5} {'rmse':>8} {'worst':>8} {'spreads':>8} "
-            f"{'min g':>10} {'min dens':>10} {'integral':>9} {'bf':>4}",
+            (
+                f"{self.method} fit: {self.rmse_vol_points:.4f} vol points RMSE, "
+                f"worst {self.max_error_vol_points:.4f}, "
+                f"{self.rmse_in_spreads:.2f} bid-ask spreads, "
+                f"{self.quotes} quotes, {self.seconds * 1e3:.0f} ms -- {arb}"
+            ),
+            (
+                f"  {'T':>8} {'pts':>5} {'rmse':>8} {'worst':>8} {'spreads':>8} "
+                f"{'min g':>10} {'min dens':>10} {'integral':>9} {'bf':>4}"
+            ),
         ]
         for d in self.diagnostics:
             lines.append(
@@ -131,12 +137,15 @@ class FittedSurface:
                 f"{d.max_error_vol_points:8.4f} {d.rmse_in_spreads:8.2f} "
                 f"{d.min_g:10.3e} {d.min_density:10.3e} "
                 f"{d.density_integral:9.6f} "
-                f"{'ok' if d.butterfly_free else 'BAD':>4}")
+                f"{'ok' if d.butterfly_free else 'BAD':>4}"
+            )
         if self.calendar_report is not None:
             c = self.calendar_report
-            lines.append(f"  calendar: {c.violations} violations, worst decrease "
-                         f"{c.worst_decrease:.3e} at k={c.k_at_worst:.3f}, "
-                         f"T={c.t_at_worst:.4f}")
+            lines.append(
+                f"  calendar: {c.violations} violations, worst decrease "
+                f"{c.worst_decrease:.3e} at k={c.k_at_worst:.3f}, "
+                f"T={c.t_at_worst:.4f}"
+            )
         if self.message:
             lines.append(f"  {self.message}")
         return "\n".join(lines)
@@ -179,8 +188,7 @@ def fit(chain, method: str = "essvi", *, density_points: int = 2001) -> FittedSu
         result = _vse.fit_ssvi(slices, expiries, theta)
         model = result.surface
         raws = [model.slice_at(t).to_raw() for t in expiries]
-        calendar_free = (result.calendar.free
-                         and all(c.calendar_free for c in result.conditions))
+        calendar_free = result.calendar.free and all(c.calendar_free for c in result.conditions)
         message = result.message
         converged = result.converged
     else:
@@ -201,16 +209,23 @@ def fit(chain, method: str = "essvi", *, density_points: int = 2001) -> FittedSu
         err = (model_vol - cols["implied_vol"]) * 100.0
         spreads = err / np.maximum(cols["spread_vol"] * 100.0, 1e-12)
         bf = _vse.check_butterfly(raw, s.expiry, 0.0, density_points)
-        diagnostics.append(SliceDiagnostics(
-            expiry=s.expiry, n=s.n,
-            rmse_vol_points=float(np.sqrt(np.mean(err ** 2))),
-            max_error_vol_points=float(np.max(np.abs(err))),
-            rmse_in_spreads=float(np.sqrt(np.mean(spreads ** 2))),
-            butterfly_free=bf.free, min_g=bf.min_g, k_at_min=bf.k_at_min,
-            min_density=bf.min_density,
-            density_integral=bf.density_integral, butterfly_violations=bf.violations))
-        sq_total += float(np.sum(err ** 2))
-        sq_spread_total += float(np.sum(spreads ** 2))
+        diagnostics.append(
+            SliceDiagnostics(
+                expiry=s.expiry,
+                n=s.n,
+                rmse_vol_points=float(np.sqrt(np.mean(err**2))),
+                max_error_vol_points=float(np.max(np.abs(err))),
+                rmse_in_spreads=float(np.sqrt(np.mean(spreads**2))),
+                butterfly_free=bf.free,
+                min_g=bf.min_g,
+                k_at_min=bf.k_at_min,
+                min_density=bf.min_density,
+                density_integral=bf.density_integral,
+                butterfly_violations=bf.violations,
+            )
+        )
+        sq_total += float(np.sum(err**2))
+        sq_spread_total += float(np.sum(spreads**2))
         worst = max(worst, float(np.max(np.abs(err))))
         count += len(err)
 
@@ -222,7 +237,10 @@ def fit(chain, method: str = "essvi", *, density_points: int = 2001) -> FittedSu
         calendar_free = calendar_report.free if method == "svi" else calendar_free
 
     return FittedSurface(
-        method=method, model=model, expiries=expiries, slices=raws,
+        method=method,
+        model=model,
+        expiries=expiries,
+        slices=raws,
         diagnostics=diagnostics,
         rmse_vol_points=math.sqrt(sq_total / count),
         max_error_vol_points=worst,
@@ -230,8 +248,11 @@ def fit(chain, method: str = "essvi", *, density_points: int = 2001) -> FittedSu
         quotes=count,
         calendar_free=calendar_free,
         butterfly_free=all(d.butterfly_free for d in diagnostics),
-        calendar_report=calendar_report, converged=converged, message=message,
-        seconds=seconds)
+        calendar_report=calendar_report,
+        converged=converged,
+        message=message,
+        seconds=seconds,
+    )
 
 
 @dataclass
@@ -261,8 +282,13 @@ def _calendar_scan(raws, expiries, half_width: float = 1.5, points: int = 401):
         j = int(np.argmax(drop))
         if drop[j] > worst:
             worst, k_at, t_at = float(drop[j]), float(ks[j]), float(expiries[i])
-    return _ScanReport(free=violations == 0, worst_decrease=worst, k_at_worst=k_at,
-                       t_at_worst=t_at, violations=violations)
+    return _ScanReport(
+        free=violations == 0,
+        worst_decrease=worst,
+        k_at_worst=k_at,
+        t_at_worst=t_at,
+        violations=violations,
+    )
 
 
 def _calendar_holds(raws, expiries) -> bool:
@@ -296,14 +322,16 @@ def spline_control(chain, slice_index: int = -1, points: int = 2001):
     dw = spline(grid, 1)
     d2w = spline(grid, 2)
     # Durrleman's g, the same expression check_butterfly uses in the core.
-    g = ((1.0 - 0.5 * grid * dw / np.maximum(wv, 1e-300)) ** 2
-         - 0.25 * dw ** 2 * (0.25 + 1.0 / np.maximum(wv, 1e-300))
-         + 0.5 * d2w)
+    g = (
+        (1.0 - 0.5 * grid * dw / np.maximum(wv, 1e-300)) ** 2
+        - 0.25 * dw**2 * (0.25 + 1.0 / np.maximum(wv, 1e-300))
+        + 0.5 * d2w
+    )
     fitted_vol = np.sqrt(np.maximum(spline(cols["log_moneyness"]), 0.0) / s.expiry)
     err = (fitted_vol - cols["implied_vol"]) * 100.0
     return {
         "expiry": s.expiry,
-        "rmse_vol_points": float(np.sqrt(np.mean(err ** 2))),
+        "rmse_vol_points": float(np.sqrt(np.mean(err**2))),
         "min_g": float(np.min(g)),
         "violations": int(np.count_nonzero(g < 0.0)),
         "points": points,

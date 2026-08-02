@@ -72,8 +72,12 @@ def split_polynomial(a: int) -> tuple[int, int]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dimensions", type=int, default=1024,
-                    help="how many Sobol dimensions to emit (default 1024)")
+    ap.add_argument(
+        "--dimensions",
+        type=int,
+        default=1024,
+        help="how many Sobol dimensions to emit (default 1024)",
+    )
     args = ap.parse_args()
     n = args.dimensions
 
@@ -81,8 +85,7 @@ def main() -> None:
     m_text = fetch("sobol_minit.csv")
 
     poly = [int(line) for line in a_text.split() if line.strip()]
-    rows = [[int(v) for v in line.split(",") if v.strip()]
-            for line in m_text.strip().split("\n")]
+    rows = [[int(v) for v in line.split(",") if v.strip()] for line in m_text.strip().split("\n")]
 
     # Dimension 1 has no polynomial (its direction numbers are all ones), so
     # entry j of these tables belongs to dimension j + 2.
@@ -103,8 +106,8 @@ def main() -> None:
             flat.append(rows[i][j])
 
     lic = [
-        "// Direction numbers from S. Joe and F. Y. Kuo, \"Constructing Sobol",
-        "// sequences with better two-dimensional projections\", SIAM J. Sci. Comput.",
+        '// Direction numbers from S. Joe and F. Y. Kuo, "Constructing Sobol',
+        '// sequences with better two-dimensional projections", SIAM J. Sci. Comput.',
         "// 30, 2635-2654 (2008), redistributed under the following licence:",
         "//",
         "//   Copyright (c) 2008, Frances Y. Kuo and Stephen Joe. All rights reserved.",
@@ -120,7 +123,7 @@ def main() -> None:
         "//   endorse or promote products derived from this software without specific",
         "//   prior written permission.",
         "//",
-        "//   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS \"AS IS\" AND ANY",
+        '//   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS "AS IS" AND ANY',
         "//   EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE",
         "//   IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR",
         "//   PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE",
@@ -131,7 +134,7 @@ def main() -> None:
     def emit(name: str, values: list[int], ctype: str, per_line: int = 16) -> list[str]:
         out = [f"inline constexpr {ctype} {name}[] = {{"]
         for i in range(0, len(values), per_line):
-            chunk = ", ".join(str(v) for v in values[i:i + per_line])
+            chunk = ", ".join(str(v) for v in values[i : i + per_line])
             out.append("    " + chunk + ",")
         out.append("};")
         return out
@@ -169,8 +172,10 @@ def main() -> None:
 
     OUT.write_text("\n".join(lines), encoding="utf-8")
     print(f"wrote {OUT}")
-    print(f"  {n} dimensions, {len(flat)} initial direction numbers, "
-          f"max degree {max(degrees)}, {OUT.stat().st_size // 1024} KB")
+    print(
+        f"  {n} dimensions, {len(flat)} initial direction numbers, "
+        f"max degree {max(degrees)}, {OUT.stat().st_size // 1024} KB"
+    )
 
 
 if __name__ == "__main__":

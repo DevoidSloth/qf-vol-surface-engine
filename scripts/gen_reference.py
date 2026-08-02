@@ -85,7 +85,23 @@ NB_CASES = [
     (-8.0, 0.6),
 ]
 
-NORM_CDF_CASES = [0.0, 0.5, -0.5, 1.0, -1.0, 3.0, -3.0, 7.0, -7.0, 10.0, -10.0, 20.0, -20.0, 36.0, -36.0]
+NORM_CDF_CASES = [
+    0.0,
+    0.5,
+    -0.5,
+    1.0,
+    -1.0,
+    3.0,
+    -3.0,
+    7.0,
+    -7.0,
+    10.0,
+    -10.0,
+    20.0,
+    -20.0,
+    36.0,
+    -36.0,
+]
 
 
 def main() -> None:
@@ -111,19 +127,31 @@ def main() -> None:
             f"    {{{lit(S)}, {lit(K)}, {lit(T)}, {lit(r)}, {lit(q)}, {lit(sig)},"
             f"\n     {lit(c)}, {lit(p)}}},"
         )
-    lines += ["};", "", "struct NBRef { double x, s, b; };", "",
-              "inline constexpr NBRef kNormalisedBlackReference[] = {"]
+    lines += [
+        "};",
+        "",
+        "struct NBRef { double x, s, b; };",
+        "",
+        "inline constexpr NBRef kNormalisedBlackReference[] = {",
+    ]
     for x, s in NB_CASES:
         lines.append(f"    {{{lit(x)}, {lit(s)}, {lit(normalised_black(x, s))}}},")
-    lines += ["};", "", "struct CdfRef { double x, cdf; };", "",
-              "inline constexpr CdfRef kNormCdfReference[] = {"]
+    lines += [
+        "};",
+        "",
+        "struct CdfRef { double x, cdf; };",
+        "",
+        "inline constexpr CdfRef kNormCdfReference[] = {",
+    ]
     for x in NORM_CDF_CASES:
         lines.append(f"    {{{lit(x)}, {lit(norm_cdf(mp.mpf(x)))}}},")
     lines += ["};", "", "}  // namespace vsetest", ""]
 
     OUT.write_text("\n".join(lines), encoding="utf-8")
-    print(f"wrote {OUT} ({len(BS_CASES)} BS + {len(NB_CASES)} normalised-Black "
-          f"+ {len(NORM_CDF_CASES)} CDF references)")
+    print(
+        f"wrote {OUT} ({len(BS_CASES)} BS + {len(NB_CASES)} normalised-Black "
+        f"+ {len(NORM_CDF_CASES)} CDF references)"
+    )
 
 
 if __name__ == "__main__":
