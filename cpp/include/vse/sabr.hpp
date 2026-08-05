@@ -20,17 +20,39 @@
 // CMS convexity adjustment, a digital, a range accrual) is wrong. The test suite
 // locates the violation and reports where it starts.
 //
-// Two standard responses are implemented:
+// Two standard responses are implemented here, and NEITHER OF THEM FIXES IT.
+// That is a measurement, and it corrected what this comment used to say.
 //
 //   * SHIFTED SABR. Replace F by F + s and K by K + s. The lognormal process
 //     then lives on (-s, infinity), which is what makes the model usable at all
-//     when rates are negative, and it moves the arbitrage down with the shift
-//     rather than removing it.
+//     when rates are negative. It is a change of variable: a shifted SABR on a
+//     shifted forward reproduces the unshifted smile to 1e-14, so it relabels
+//     the arbitrage rather than removing it.
 //   * NORMAL SABR. At beta = 0 the SABR process is a Bachelier model with
-//     stochastic vol, and Hagan's normal-vol expansion for that case is far
-//     better behaved -- the arbitrage is pushed out to strikes that are not
-//     quoted. Converting between normal and lognormal quoting conventions is
-//     then an implied-vol inversion, which this library already does exactly.
+//     stochastic vol, and Hagan's normal-vol expansion is the natural quoting
+//     convention for it. I had written here that it is "far better behaved --
+//     the arbitrage is pushed out to strikes that are not quoted". The
+//     benchmark in this repository says otherwise. On F = 3%, nu = 0.45,
+//     rho = -0.2, T = 10, scanning 1500 strikes:
+//
+//         beta   expansion    boundary K/F   violations   min density
+//         0.00   lognormal          0.4077          195     -4.48e+02
+//         0.00   normal             0.3480          165     -5.89e+02
+//         0.50   lognormal          0.2804          131     -8.71e+01
+//         0.50   normal             0.2586          120     -3.90e+02
+//         1.00   lognormal          0.0717           26     -1.30e+01
+//
+//     The normal expansion moves the boundary by a couple of percent of the
+//     forward while making the worst density several times more negative, and
+//     beta = 0 -- which is what "normal SABR" actually means -- is far worse
+//     than beta = 0.5 on both counts. The claim was plausible, is widely
+//     repeated, and is contradicted by the numbers this project already had.
+//     The vol quoting convention is not where the constraint lives.
+//
+// What actually works is in smile_repair.hpp: project the PRICES onto the
+// nearest convex curve, which is where no-arbitrage is a constraint rather than
+// a hope. It takes 131 violations to zero and costs 3.5 vol points in the wing
+// that was not a price to begin with.
 #pragma once
 
 #include "vse/black.hpp"
