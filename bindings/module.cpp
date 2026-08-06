@@ -13,6 +13,7 @@
 // quote.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/functional.h>
 #include <pybind11/stl.h>
 
 #include "vse/aad.hpp"
@@ -32,6 +33,7 @@
 #include "vse/pde.hpp"
 #include "vse/pde_heston.hpp"
 #include "vse/sabr.hpp"
+#include "vse/smile_repair.hpp"
 #include "vse/svi.hpp"
 #include "vse/synthetic.hpp"
 
@@ -520,6 +522,44 @@ PYBIND11_MODULE(_vse, m) {
     m.def("sabr_alpha_from_atm", &sabr_alpha_from_atm, py::arg("atm_vol"), py::arg("forward"),
           py::arg("expiry"), py::arg("beta"), py::arg("rho"), py::arg("nu"),
           py::arg("shift") = 0.0);
+    value_type<SmileRepairReport>(m, "SmileRepairReport", "")
+        .def_readonly("min_density_before", &SmileRepairReport::min_density_before)
+        .def_readonly("min_density_after", &SmileRepairReport::min_density_after)
+        .def_readonly("violations_before", &SmileRepairReport::violations_before)
+        .def_readonly("violations_after", &SmileRepairReport::violations_after)
+        .def_readonly("max_vol_change", &SmileRepairReport::max_vol_change)
+        .def_readonly("max_vol_change_strike", &SmileRepairReport::max_vol_change_strike)
+        .def_readonly("max_price_change", &SmileRepairReport::max_price_change)
+        .def_readonly("density_tolerance", &SmileRepairReport::density_tolerance)
+        .def_readonly("mass_before", &SmileRepairReport::mass_before)
+        .def_readonly("mass_after", &SmileRepairReport::mass_after)
+        .def_readonly("points", &SmileRepairReport::points)
+        .def_readonly("repaired", &SmileRepairReport::repaired);
+    value_type<RepairedSmile>(m, "RepairedSmile",
+                              "A smile projected onto the nearest arbitrage-free one.")
+        .def_readonly("strikes", &RepairedSmile::strikes)
+        .def_readonly("otm_price", &RepairedSmile::otm_price)
+        .def_readonly("implied_vol", &RepairedSmile::implied_vol)
+        .def_readonly("input_vol", &RepairedSmile::input_vol)
+        .def_readonly("density", &RepairedSmile::density)
+        .def_readonly("forward", &RepairedSmile::forward)
+        .def_readonly("expiry", &RepairedSmile::expiry)
+        .def_readonly("report", &RepairedSmile::report)
+        .def("vol_at", &RepairedSmile::vol_at, py::arg("strike"));
+    m.def("repair_sabr", &repair_sabr, py::arg("params"), py::arg("forward"), py::arg("expiry"),
+          py::arg("k_min_ratio") = 0.02, py::arg("k_max_ratio") = 3.0, py::arg("points") = 1501,
+          py::arg("normal_form") = false,
+          "Project a SABR smile onto the nearest one that is a distribution.");
+    m.def("repair_smile",
+          [](const std::function<Real(Real)>& vol_at, Real forward, Real expiry, Real lo, Real hi,
+             int n) { return repair_smile(vol_at, forward, expiry, lo, hi, n); },
+          py::arg("vol_at"), py::arg("forward"), py::arg("expiry"), py::arg("k_min_ratio") = 0.02,
+          py::arg("k_max_ratio") = 3.0, py::arg("points") = 1501,
+          "Project any smile, given as a callable from strike to implied vol.");
+    m.def("isotonic_increasing",
+          [](std::vector<Real> y) { isotonic_increasing(y); return y; }, py::arg("values"),
+          "L2 projection onto the non-decreasing sequences (pool adjacent violators).");
+
     m.def("sabr_density_scan", &sabr_density_scan, py::arg("params"), py::arg("forward"),
           py::arg("expiry"), py::arg("k_min_ratio") = 0.02, py::arg("k_max_ratio") = 3.0,
           py::arg("points") = 1500, py::arg("normal_form") = false);

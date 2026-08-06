@@ -6,6 +6,7 @@
 #include "vse/implied_vol.hpp"
 #include "vse/rng.hpp"
 #include "vse/sabr.hpp"
+#include "vse/smile_repair.hpp"
 
 #include <array>
 #include <vector>
@@ -317,4 +318,37 @@ BENCH("sabr.arbitrage") {
         return acc;
     }, 1000);
     vsebench::report("sabr.vol.latency", "Hagan lognormal volatility", ns, "ns/strike", "");
+
+    // The repair. Neither the shift nor the normal expansion removes the
+    // arbitrage (see smile_repair.hpp for the measurements that say so);
+    // projecting the prices onto the nearest convex curve does.
+    const auto fixed = repair_sabr(p, F, T, 0.02, 3.0, 1501, false);
+    vsebench::report("sabr.repair.violations_before",
+                     "Butterfly violations, Hagan smile as given",
+                     double(fixed.report.violations_before), "of 1501", "");
+    vsebench::report("sabr.repair.violations_after",
+                     "Butterfly violations after convexity projection",
+                     double(fixed.report.violations_after), "of 1501",
+                     "isotonic regression on the call slopes; exact, not iterative");
+    vsebench::report("sabr.repair.min_density_before", "Worst density, Hagan smile",
+                     fixed.report.min_density_before, "density", "");
+    vsebench::report("sabr.repair.min_density_after", "Worst density after repair",
+                     fixed.report.min_density_after, "density",
+                     "at the noise floor of a second difference on this grid");
+    vsebench::report("sabr.repair.max_vol_change", "Cost of the repair",
+                     fixed.report.max_vol_change * 100.0, "implied vol points",
+                     "worst over the grid, concentrated in the wing that was not a price");
+    vsebench::report("sabr.repair.mass_before", "Probability mass, Hagan smile",
+                     fixed.report.mass_before, "dimensionless",
+                     "a distribution integrates to one; this is the larger of the two failures");
+    vsebench::report("sabr.repair.mass_after", "Probability mass after repair",
+                     fixed.report.mass_after, "dimensionless",
+                     "the slope bounds recover part of it; convexity cannot recover the rest");
+
+    const double repair_ns = vsebench::time_ns_per_op([&] {
+        const auto r = repair_sabr(p, F, T, 0.02, 3.0, 1501, false);
+        return r.report.min_density_after;
+    }, 1501);
+    vsebench::report("sabr.repair.latency", "Convexity projection", repair_ns, "ns/strike",
+                     "including pricing, the projection and re-implying every strike");
 }
