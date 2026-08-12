@@ -280,9 +280,9 @@ RepairedSmile repair_smile(VolFn&& vol_at, Real forward, Real expiry, Real k_min
         auto call = [&](std::size_t i) {
             return out.strikes[i] < forward ? otm[i] + forward - out.strikes[i] : otm[i];
         };
-        const Real hi = (call(count - 1) - call(count - 2)) / h;
-        const Real lo = (call(1) - call(0)) / h;
-        return hi - lo;
+        const Real slope_at_top = (call(count - 1) - call(count - 2)) / h;
+        const Real slope_at_bottom = (call(1) - call(0)) / h;
+        return slope_at_top - slope_at_bottom;
     };
     out.report.mass_before = endpoint_mass(out.otm_price);
 

@@ -341,3 +341,50 @@ BENCH("aad.greeks") {
                      "standard error over value",
                      "spot-like factors never touch the square root and are unaffected");
 }
+
+BENCH("pde.dividends") {
+    // Cash dividends by jump condition, against the two shortcuts.
+    const Real S = 100.0, K = 100.0, T = 1.0, r = 0.05, sigma = 0.25;
+    const std::vector<CashDividend> divs{{0.5, 8.0}};
+    const Real pv = pv_remaining_dividends(divs, r, T, T);
+    const Real q = -std::log((S - pv) / S) / T;
+
+    PDEConfig cfg;
+    cfg.space_steps = 800;
+    cfg.time_steps = 400;
+
+    const Real euro_jump =
+        pde_vanilla(S, K, T, r, 0.0, sigma, OptionType::Call, Exercise::European, cfg, divs).price;
+    const Real amer_jump =
+        pde_vanilla(S, K, T, r, 0.0, sigma, OptionType::Call, Exercise::American, cfg, divs).price;
+    const Real euro_yield =
+        pde_vanilla(S, K, T, r, q, sigma, OptionType::Call, Exercise::European, cfg).price;
+    const Real amer_yield =
+        pde_vanilla(S, K, T, r, q, sigma, OptionType::Call, Exercise::American, cfg).price;
+    const Real escrowed = bs_price(S - pv, K, T, r, 0.0, sigma, OptionType::Call);
+
+    vsebench::report("pde.dividends.american_early_exercise",
+                     "Early exercise premium, American call over an 8.00 cash dividend",
+                     amer_jump - euro_jump, "price",
+                     "zero without the dividend; a yield cannot produce it");
+    vsebench::report("pde.dividends.yield_error_european",
+                     "Equivalent-yield error, European call",
+                     std::fabs(euro_yield - euro_jump), "price",
+                     "same forward, different process");
+    vsebench::report("pde.dividends.yield_error_american",
+                     "Equivalent-yield error, American call",
+                     std::fabs(amer_yield - amer_jump), "price",
+                     "larger, because the exercise decision needs the drop and not its PV");
+    vsebench::report("pde.dividends.escrowed_gap",
+                     "Escrowed model against the jump condition, European call",
+                     std::fabs(escrowed - euro_jump), "price",
+                     "a modelling choice, not a discretisation error: the volatility "
+                     "acts on S - PV(D) rather than on S");
+
+    const double ms = vsebench::time_ns_per_op([&] {
+        return pde_vanilla(S, K, T, r, 0.0, sigma, OptionType::Call, Exercise::American, cfg,
+                           divs).price;
+    }, 1) / 1e6;
+    vsebench::report("pde.dividends.time", "American call with one cash dividend", ms, "ms",
+                     "800 x 400 split into two segments, Rannacher restarted at the ex-date");
+}

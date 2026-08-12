@@ -582,9 +582,23 @@ PYBIND11_MODULE(_vse, m) {
         .def_readonly("psor_iterations", &PDEResult::psor_iterations)
         .def_readonly("spots", &PDEResult::spots)
         .def_readonly("values", &PDEResult::values);
+    value_type<CashDividend>(m, "CashDividend",
+                             "A fixed cash amount per share on a known ex-date.")
+        .def(py::init([](Real time, Real amount) { return CashDividend{time, amount}; }),
+             py::arg("time"), py::arg("amount"))
+        .def_readwrite("time", &CashDividend::time)
+        .def_readwrite("amount", &CashDividend::amount)
+        .def("__repr__", [](const CashDividend& d) {
+            return "CashDividend(time=" + std::to_string(d.time) + ", amount=" +
+                   std::to_string(d.amount) + ")";
+        });
+    m.def("pv_remaining_dividends", &pv_remaining_dividends, py::arg("dividends"),
+          py::arg("rate"), py::arg("expiry"), py::arg("tau"));
     m.def("pde_vanilla", &pde_vanilla, py::arg("spot"), py::arg("strike"), py::arg("expiry"),
           py::arg("rate"), py::arg("dividend"), py::arg("sigma"), py::arg("type"),
-          py::arg("exercise") = Exercise::European, py::arg("config") = PDEConfig{});
+          py::arg("exercise") = Exercise::European, py::arg("config") = PDEConfig{},
+          py::arg("cash_dividends") = std::vector<CashDividend>{},
+          "Cash dividends are applied as jump conditions at their ex-dates.");
 
     value_type<HestonPDEConfig>(m, "HestonPDEConfig", "")
         .def(py::init<>())
