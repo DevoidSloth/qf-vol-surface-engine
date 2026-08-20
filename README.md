@@ -6,8 +6,19 @@ library. C++20 header-only core, pybind11 bindings, Python pipeline.
 The organising idea is that a volatility surface is a probability distribution
 or it is nothing. A cubic spline through the same quotes fits them exactly —
 zero error, because it interpolates — and produces a risk-neutral density that
-is negative over roughly half its range. It is the better fit by every measure
-except the one that decides whether the surface can be traded against.
+is negative over half its range. It is the better fit by every measure except
+the one that decides whether the surface can be traded against.
+
+The usual explanation for that is wrong, and this repository measures it. A
+spline is not the wrong basis: through **exact** quotes the same spline is
+arbitrage-free (0 violations of 4001, min *g* = +0.46). Round those quotes to
+the nearest tick and it fails at 803 points; add ordinary quote noise and it
+fails at 1963. What breaks an interpolant is having as many degrees of freedom
+as it has quotes and being obliged to honour every one, including the half tick
+that is a rounding rather than a price — and a second derivative turns half a
+tick into a density of −600. What an arbitrage-free parameterisation buys is not
+a better basis. It is *fewer parameters than quotes*, so that it cannot chase
+the noise.
 
 ![Durrleman's g and the risk-neutral density](benchmarks/density.png)
 

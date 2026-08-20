@@ -185,3 +185,63 @@ BENCH("surface.spline_control") {
                      "Butterfly violations, single-slice SVI",
                      double(svi_bf.violations), "count", "same grid");
 }
+
+BENCH("surface.spline_noise") {
+    // WHY the spline fails, which is not the reason usually given.
+    //
+    // The usual story is that a cubic spline is the wrong basis. It is not: a
+    // spline through EXACT quotes is arbitrage-free. What breaks it is being an
+    // interpolant -- as many degrees of freedom as quotes, obliged to honour
+    // every one, including the half-tick that is a rounding rather than a price.
+    // A second derivative then turns half a tick into a density of several
+    // thousand.
+    //
+    // Four boards, identical but for what is done to the quotes, so the
+    // comparison isolates the cause instead of demonstrating the symptom.
+    struct Case { const char* id; bool noise; bool tick; };
+    const Case cases[] = {
+        {"exact", false, false},
+        {"tick_only", false, true},
+        {"noise_only", true, false},
+        {"noise_and_tick", true, true},
+    };
+
+    for (const Case& c : cases) {
+        SyntheticChainConfig cfg;
+        cfg.seed = 20260615;
+        cfg.add_quote_noise = c.noise;
+        cfg.round_to_tick = c.tick;
+        const auto chain = generate_synthetic_chain({0.25}, cfg);
+        const auto& e = chain.expiries[0];
+
+        std::vector<RawQuote> calls, puts;
+        split_by_type(e.quotes, calls, puts);
+        const auto fwd = implied_forward_from_parity(calls, puts, e.expiry, cfg.spot);
+        FilterConfig fc;
+        const auto slice = build_slice(e.quotes, fwd.forward, e.expiry, fwd.discount, fc);
+
+        std::vector<Real> ks, ws;
+        for (const auto& q : slice) {
+            if (!ks.empty() && q.log_moneyness <= ks.back()) continue;
+            ks.push_back(q.log_moneyness);
+            ws.push_back(q.total_variance);
+        }
+        const CubicSpline spline(ks, ws);
+        struct SplineSlice {
+            const CubicSpline* s;
+            Real total_variance(Real k) const { return (*s)(k); }
+            Real dw(Real k) const { return s->derivative(k); }
+            Real d2w(Real k) const { return s->second_derivative(k); }
+        } ss{&spline};
+        const auto bf = check_butterfly(ss, e.expiry, 0.9 * ks.back(), 4001);
+
+        vsebench::report(std::string("surface.spline_noise.") + c.id + ".violations",
+                         std::string("Butterfly violations, spline through ") + c.id + " quotes",
+                         double(bf.violations), "of 4001",
+                         c.noise || c.tick ? ""
+                                           : "an interpolant through exact quotes is fine");
+        vsebench::report(std::string("surface.spline_noise.") + c.id + ".min_g",
+                         std::string("Smallest g(k), spline through ") + c.id + " quotes",
+                         bf.min_g, "dimensionless", "");
+    }
+}

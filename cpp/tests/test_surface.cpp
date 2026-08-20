@@ -588,3 +588,69 @@ TEST(calibrate, essvi_calendar_conditions_hold_on_a_dense_board) {
         CHECK(std::fabs(fit.surface.rho[i]) < 1.0);
     }
 }
+
+TEST(surface, a_spline_through_exact_quotes_is_arbitrage_free) {
+    // The control for the control, and it changes what the comparison means.
+    //
+    // The standard argument for an arbitrage-free parameterisation is that a
+    // cubic spline through the same quotes produces a negative density. True,
+    // and the reason usually given -- that a spline is the wrong basis -- is
+    // wrong. Given EXACT quotes the same spline is a perfectly good
+    // distribution. What breaks it is being an interpolant: as many degrees of
+    // freedom as quotes and an obligation to honour every one, including the
+    // half tick that is a rounding rather than a price. A second derivative
+    // turns half a tick into a density of several hundred.
+    //
+    // That distinction matters because it says what the parameterisation is
+    // actually buying. Not a better basis -- fewer parameters than quotes, so
+    // that it cannot chase the noise.
+    struct Case { const char* label; bool noise; bool tick; int expect_violations; };
+    std::printf("       %-18s %12s %14s\n", "quotes", "violations", "min g");
+    int exact_violations = -1, noisy_violations = -1;
+    for (const Case& c : {Case{"exact", false, false, 0},
+                          Case{"tick rounding", false, true, 1},
+                          Case{"noise", true, false, 1},
+                          Case{"noise + tick", true, true, 1}}) {
+        SyntheticChainConfig cfg;
+        cfg.seed = 20260615;
+        cfg.add_quote_noise = c.noise;
+        cfg.round_to_tick = c.tick;
+        const auto chain = generate_synthetic_chain({0.25}, cfg);
+        const auto& e = chain.expiries[0];
+
+        std::vector<RawQuote> calls, puts;
+        split_by_type(e.quotes, calls, puts);
+        const auto fwd = implied_forward_from_parity(calls, puts, e.expiry, cfg.spot);
+        FilterConfig fc;
+        const auto slice = build_slice(e.quotes, fwd.forward, e.expiry, fwd.discount, fc);
+
+        std::vector<Real> ks, ws;
+        for (const auto& q : slice) {
+            if (!ks.empty() && q.log_moneyness <= ks.back()) continue;
+            ks.push_back(q.log_moneyness);
+            ws.push_back(q.total_variance);
+        }
+        const CubicSpline spline(ks, ws);
+        struct SplineSlice {
+            const CubicSpline* s;
+            Real total_variance(Real k) const { return (*s)(k); }
+            Real dw(Real k) const { return s->derivative(k); }
+            Real d2w(Real k) const { return s->second_derivative(k); }
+        } ss{&spline};
+        const auto bf = check_butterfly(ss, e.expiry, 0.9 * ks.back(), 4001);
+        std::printf("       %-18s %12d %14.4g\n", c.label, bf.violations, bf.min_g);
+
+        if (c.expect_violations == 0) {
+            CHECK(bf.violations == 0);
+            CHECK(bf.min_g > 0.0);
+            exact_violations = bf.violations;
+        } else {
+            CHECK(bf.violations > 100);
+            if (c.noise && c.tick) noisy_violations = bf.violations;
+        }
+    }
+    CHECK(exact_violations == 0);
+    // Noise costs far more than a hundred times what exactness costs, which is
+    // the whole claim stated as a number.
+    CHECK(noisy_violations > 500);
+}

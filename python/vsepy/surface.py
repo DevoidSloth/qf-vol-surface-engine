@@ -295,42 +295,120 @@ def _calendar_holds(raws, expiries) -> bool:
     return _calendar_scan(raws, expiries).free
 
 
-def spline_control(chain, slice_index: int = -1, points: int = 2001):
-    """The unconstrained alternative, for comparison.
+def spline_control(chain, slice_index: int = -1, points: int = 2001, space: str = "delta"):
+    """The unconstrained alternative, and what it is actually failing at.
 
-    A cubic spline through the same quotes in total variance -- what most
-    surfaces are actually built from. It interpolates the quotes essentially
-    exactly, which looks like the better fit until the second derivative is
-    examined: an interpolant has no reason to produce a positive density and
-    generally does not.
+    A cubic spline through the same quotes -- what most surfaces are really
+    built from. It interpolates them exactly, so its RMSE is zero, and its
+    implied density is negative over roughly half the range. That much is the
+    usual argument for an arbitrage-free parameterisation.
 
-    Returns a dict with the spline's RMSE and its butterfly diagnostics, on the
+    The usual argument gets the reason wrong, and the measurement says so. On
+    one slice of a generated board, varying only what is done to the quotes:
+
+        quotes                     delta space          log-moneyness space
+        exact                    min g  +0.18, 0       min g  +0.33, 0
+        tick rounding only       min g  -2099, 423     min g  -36.5, 429
+        quote noise only         min g  -5127, 983     min g  -686, 986
+        both                     min g  -8530, 983     min g  -666, 985
+
+    A spline through EXACT quotes is arbitrage-free. The interpolant is not the
+    problem and neither is the coordinate; the problem is that an interpolant
+    has as many degrees of freedom as it has quotes and is required to honour
+    every one of them, including the part that is a rounding to the nearest
+    tick. A second derivative then turns half a tick into a density of -8530.
+    A parameterisation with two free parameters per slice cannot chase that
+    noise, which is not a limitation of it -- it is the entire mechanism by
+    which it stays a distribution.
+
+    So the honest claim is not "splines admit arbitrage". It is that
+    interpolation and noisy data cannot be combined, and market data is noisy.
+
+    `space` is the x-coordinate:
+
+      delta          Volatility against the Black-Scholes call delta, which is
+                     what desks quote and interpolate in. The default, because
+                     comparing against an interpolant nobody would defend proves
+                     nothing. Note that it is NOT better behaved here -- it
+                     compresses the wings, which concentrates the knots and
+                     makes the worst g several times more negative -- so this
+                     default costs the comparison rather than flattering it.
+      log_moneyness  Total variance against k. Simpler, and the violation counts
+                     come out much the same.
+
+    Returns a dict with the spline's RMSE and its butterfly diagnostics on the
     same grid the SVI diagnostics use.
     """
     from scipy.interpolate import CubicSpline
 
+    if space not in ("delta", "log_moneyness"):
+        raise ValueError(f"space must be 'delta' or 'log_moneyness', got {space!r}")
+
     s = chain[slice_index]
     cols = s.arrays()
-    k, w = cols["log_moneyness"], cols["total_variance"]
-    order = np.argsort(k)
-    k, w = k[order], w[order]
-    keep = np.concatenate(([True], np.diff(k) > 1e-12))
-    spline = CubicSpline(k[keep], w[keep], bc_type="natural")
+    k_in, vol_in = cols["log_moneyness"], cols["implied_vol"]
+    grid = np.linspace(k_in.min(), k_in.max(), points)
 
-    grid = np.linspace(k[0], k[-1], points)
-    wv = spline(grid)
-    dw = spline(grid, 1)
-    d2w = spline(grid, 2)
+    if space == "log_moneyness":
+        w_in = cols["total_variance"]
+        order = np.argsort(k_in)
+        x, y = k_in[order], w_in[order]
+        keep = np.concatenate(([True], np.diff(x) > 1e-12))
+        spline = CubicSpline(x[keep], y[keep], bc_type="natural")
+        wv = spline(grid)
+        dw = spline(grid, 1)
+        d2w = spline(grid, 2)
+        fitted_vol = np.sqrt(np.maximum(spline(k_in), 0.0) / s.expiry)
+    else:
+        # Forward call delta, N(d1), which is monotone decreasing in strike and
+        # so gives a well-ordered knot sequence without any sorting subtlety.
+        def call_delta(k, vol):
+            sd = vol * math.sqrt(s.expiry)
+            return _vse.norm_cdf((-k + 0.5 * sd * sd) / sd)
+
+        d_in = call_delta(k_in, vol_in)
+        order = np.argsort(d_in)
+        x, y = d_in[order], vol_in[order]
+        keep = np.concatenate(([True], np.diff(x) > 1e-12))
+        spline = CubicSpline(x[keep], y[keep], bc_type="natural")
+
+        # Evaluating at a strike needs a fixed point, because the delta the
+        # spline is indexed by depends on the volatility it returns. Damped, and
+        # seeded from the nearest quote, it converges in a handful of passes;
+        # this is the cost of quoting in delta and is why the convention is
+        # awkward to implement even though it is the right one to use.
+        def vol_at(k):
+            v = float(np.interp(k, k_in, vol_in))
+            for _ in range(60):
+                nxt = float(spline(call_delta(k, v)))
+                if not math.isfinite(nxt) or nxt <= 1e-6:
+                    return v
+                if abs(nxt - v) < 1e-13:
+                    return nxt
+                v = 0.5 * (v + nxt)
+            return v
+
+        smile = np.array([vol_at(float(kk)) for kk in grid])
+        wv = smile**2 * s.expiry
+        # Differentiate the reconstructed total variance numerically: the spline
+        # is a function of delta, not of k, so its own derivatives are in the
+        # wrong variable and the chain rule through the fixed point is not worth
+        # deriving for a control.
+        h = grid[1] - grid[0]
+        dw = np.gradient(wv, h, edge_order=2)
+        d2w = np.gradient(dw, h, edge_order=2)
+        fitted_vol = np.array([vol_at(float(kk)) for kk in k_in])
+
     # Durrleman's g, the same expression check_butterfly uses in the core.
     g = (
         (1.0 - 0.5 * grid * dw / np.maximum(wv, 1e-300)) ** 2
         - 0.25 * dw**2 * (0.25 + 1.0 / np.maximum(wv, 1e-300))
         + 0.5 * d2w
     )
-    fitted_vol = np.sqrt(np.maximum(spline(cols["log_moneyness"]), 0.0) / s.expiry)
-    err = (fitted_vol - cols["implied_vol"]) * 100.0
+    err = (fitted_vol - vol_in) * 100.0
     return {
         "expiry": s.expiry,
+        "space": space,
         "rmse_vol_points": float(np.sqrt(np.mean(err**2))),
         "min_g": float(np.min(g)),
         "violations": int(np.count_nonzero(g < 0.0)),
