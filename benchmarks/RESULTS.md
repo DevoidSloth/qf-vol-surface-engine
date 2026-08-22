@@ -36,23 +36,23 @@ chain for anyone who wants to run the pipeline against one.
 | # | Metric | Measured | Target | |
 |---|--------|----------|--------|---|
 | 1 | Implied vol inversion accuracy | 4.66e-15 max relative error, 0 non-convergent | < 1e-12 | yes |
-| 2 | Implied vol inversion throughput | 4.06 M/sec single core (C++), 2.54 M/sec from Python | 8-20 M/sec (C++), 1-3 M (NumPy) | **see below** |
+| 2 | Implied vol inversion throughput | 4.72 M/sec single core (C++), 3.12 M/sec from Python | 8-20 M/sec (C++), 1-3 M (NumPy) | **see below** |
 | 3 | Surface calibration fit | 0.162 implied vol points, eSSVI, vega-weighted | 0.15-0.35 vol points | yes |
 | 4 | Arbitrage violations | 0 butterfly, calendar conditions hold (yes) | 0 by construction | yes |
-| 5 | Heston calibration time | 220 ms, 11 LM iterations, 5 free parameters | 50-400 ms | yes |
+| 5 | Heston calibration time | 225 ms, 11 LM iterations, 5 free parameters | 50-400 ms | yes |
 | 6 | Cross-method agreement | quadrature vs PDE 7.0e-04, vs FFT 1.6e-03 relative; MC within 0.08 standard errors | < 1e-6 relative; MC inside 2 se | **see below** |
 | 7 | Monte Carlo variance reduction | 183x fewer paths at fixed standard error (conditional); Sobol alone 13x, control alone 3x | 20-60x | yes |
 | 8 | American option accuracy | 0.32 bp from a 4001-step lattice | 1-3 bp | yes |
 | 9 | Longstaff-Schwartz duality gap | 33 bp at 800 inner paths (230 -> 138 -> 67 -> 33 as inner paths double) | < 5 bp | **see below** |
-| 10 | AAD Greeks speedup | 9.0x bump-and-revalue for 10 risk factors, at 2.43x the cost of one price | 8-20x | yes |
-| 11 | Test coverage of invariants | 121 properties, 46,002 assertions, 0 failures | 40+ properties, 100% pass | yes |
+| 10 | AAD Greeks speedup | 12.3x bump-and-revalue for 10 risk factors, at 1.87x the cost of one price | 8-20x | yes |
+| 11 | Test coverage of invariants | 139 properties, 48,747 assertions, 0 failures | 40+ properties, 100% pass | yes |
 
 Three rows miss their targets. None of them is reworded into a success: the
 first thing a reader who knows the field does is check the numbers that look
 too good, and the second is notice which ones are missing.
 
-**#2, throughput.** 4.06 M inversions/sec against a target of 8-20 M. The
-Python half clears its target (2.54 M/sec against 1-3 M) and the C++ half does
+**#2, throughput.** 4.72 M inversions/sec against a target of 8-20 M. The
+Python half clears its target (3.12 M/sec against 1-3 M) and the C++ half does
 not, so the row is flagged; a mark earned on the easier half would be worse
 than no mark at all. The algorithm is at its accuracy limit rather than its
 speed limit: the mean iteration count is 2.42, and each iteration evaluates
@@ -84,6 +84,54 @@ Madan's error is a fixed absolute floor set by the FFT grid, so its relative
 error is unbounded on cheap options and says more about the strike than about
 the method.
 
+## The validation matrix
+
+Each row prices the same European call across a 0.80-1.25 moneyness
+ladder by two independent routes and reports the worst disagreement.
+The reference for Black-Scholes is the closed form; for Heston it is the
+Lewis integral at quadrature order 64, whose own convergence was
+measured separately rather than assumed.
+
+Both columns are given deliberately. A relative error is unreadable on a
+cheap option -- 1e-9 of the forward on an option worth 1e-7 of it is a
+1% relative error that says something about the strike and nothing about
+the method -- and an absolute one hides a systematic bias at the money.
+
+| model | second method | max relative | max abs (of forward) | notes |
+|---|---|---:|---:|---|
+| Black-Scholes | Crank-Nicolson PDE | 5.86e-06 | 2.02e-07 | 1600 x 800, Rannacher |
+| Black-Scholes | Leisen-Reimer tree | 4.04e-09 | 3.00e-10 | 4001 steps |
+| Black-Scholes | Heston, sigma -> 0 | 7.92e-14 | 2.90e-15 | degenerate limit |
+| Black-Scholes | Bates, no jumps | 1.04e-14 | 6.96e-16 | degenerate limit |
+| Heston | Carr-Madan FFT | 1.44e-06 | 2.16e-08 | N = 8192 |
+| Heston | Craig-Sneyd ADI | 7.00e-04 | 3.17e-05 | 240 x 120 x 200 |
+| Heston | Monte Carlo | 3.63e-04 | 3.40e-05 | 400k paths, QE + conditional |
+| Heston | Bates, lambda = 0 | 4.81e-13 | 2.71e-15 | degenerate limit |
+| SABR | *none* | -- | -- | see below |
+
+The Monte Carlo row is the one that cannot be read from the table alone. At
+the money it sits 2.19 standard errors from the Lewis integral, and that is
+the only scale on which a Monte Carlo deviation means anything: a quarter of a
+standard error and five standard errors are both "3.6e-04 relative" and mean
+opposite things.
+
+SABR has no second method here and the row says so rather than being left out.
+Hagan's is an asymptotic expansion of the implied volatility, and validating
+it needs a simulation of the SABR SDE, which this library does not have. What
+it does have is a check that the expansion is not a distribution at all (see
+the smile-repair results), which is a different and in this case more useful
+thing to know.
+
+**Put-call parity**, as a fraction of the forward. Model-free, so a
+deviation is never a modelling difference and always a bug -- the one
+check here that needs no judgement about tolerances.
+
+| engine | worst violation |
+|---|---:|
+| closed form | 1.74e-16 |
+| Lewis integral | 3.48e-17 |
+| Crank-Nicolson | 2.85e-08 |
+
 ## Full results
 
 ### Implied volatility inversion
@@ -94,21 +142,21 @@ the method.
 | `iv.accuracy.price` | 1.79856e-14 | max relative | same grid |
 | `iv.iterations.mean` | 2.41851 | iterations | excludes the two bracket evaluations |
 | `iv.non_converged` | 0 | count |  |
-| `iv.latency` | 246.387 | ns/inversion | single-threaded, 242 KB working set |
-| `iv.throughput` | 4.05866 | M inversions/sec | single-threaded |
+| `iv.latency` | 211.893 | ns/inversion | single-threaded, 242 KB working set |
+| `iv.throughput` | 4.71935 | M inversions/sec | single-threaded |
 
 ### Black-Scholes
 
 | metric | value | unit | notes |
 |---|---:|---|---|
-| `black.price.latency` | 31.6335 | ns/option | single-threaded, 242 KB working set |
-| `black.price.throughput` | 31.6121 | M prices/sec | single-threaded |
+| `black.price.latency` | 29.4734 | ns/option | single-threaded, 242 KB working set |
+| `black.price.throughput` | 33.929 | M prices/sec | single-threaded |
 
 ### Analytic Greeks
 
 | metric | value | unit | notes |
 |---|---:|---|---|
-| `greeks.analytic.latency` | 171.538 | ns/option | single-threaded, price plus 9 sensitivities |
+| `greeks.analytic.latency` | 158.611 | ns/option | single-threaded, price plus 9 sensitivities |
 
 ### Surface fitting
 
@@ -118,12 +166,20 @@ the method.
 | `surface.essvi.max_error` | 0.80639 | implied vol points |  |
 | `surface.essvi.butterfly_violations` | 0 | count |  |
 | `surface.essvi.calendar_conditions` | 1 | boolean | theta and psi non-decreasing, |d(rho psi)| <= d(psi) |
-| `surface.pipeline.latency` | 3.75274 | ms | 14 expiries, 9433 raw quotes, single-threaded |
+| `surface.pipeline.latency` | 3.49935 | ms | 14 expiries, 9433 raw quotes, single-threaded |
 | `surface.spline.rmse` | 5.66558e-16 | implied vol points | interpolates every quote, so in-sample error is ~0 by construction |
 | `surface.spline.butterfly_violations` | 1925 | count | of 4001 grid points; the spline is not a probability distribution |
 | `surface.spline.min_g` | -652.101 | dimensionless |  |
 | `surface.svi_slice.rmse` | 0.135922 | implied vol points |  |
 | `surface.svi_slice.butterfly_violations` | 0 | count | same grid |
+| `surface.spline_noise.exact.violations` | 0 | of 4001 | an interpolant through exact quotes is fine |
+| `surface.spline_noise.exact.min_g` | 0.46118 | dimensionless |  |
+| `surface.spline_noise.tick_only.violations` | 803 | of 4001 |  |
+| `surface.spline_noise.tick_only.min_g` | -6.6143 | dimensionless |  |
+| `surface.spline_noise.noise_only.violations` | 1963 | of 4001 |  |
+| `surface.spline_noise.noise_only.min_g` | -600.858 | dimensionless |  |
+| `surface.spline_noise.noise_and_tick.violations` | 1989 | of 4001 |  |
+| `surface.spline_noise.noise_and_tick.min_g` | -596.062 | dimensionless |  |
 | `surface.ssvi.rmse` | 0.588319 | implied vol points | vega/spread-weighted fit, RMSE reported unweighted over 4432 quotes |
 | `surface.ssvi.max_error` | 3.7549 | implied vol points |  |
 | `surface.ssvi.butterfly_violations` | 0 | count | grid points with g(k) < 0 across all slices |
@@ -131,13 +187,13 @@ the method.
 | `surface.ssvi.condition_failures` | 0 | slices | closed-form Theorem 4.2 conditions, evaluated per expiry |
 | `surface.ssvi.min_g` | 0.250429 | dimensionless | negative would mean a negative density |
 | `surface.ssvi.density_integral_error` | 3.45693e-08 | absolute | Simpson over six wing standard deviations |
-| `surface.ssvi.calibration_time` | 38.3253 | ms | single-threaded, includes all arbitrage checks |
+| `surface.ssvi.calibration_time` | 42.7423 | ms | single-threaded, includes all arbitrage checks |
 
 ### Heston
 
 | metric | value | unit | notes |
 |---|---:|---|---|
-| `heston.calibration.time` | 219.542 | ms | 434 quotes over 14 expiries, 5 free parameters, single-threaded |
+| `heston.calibration.time` | 225.379 | ms | 434 quotes over 14 expiries, 5 free parameters, single-threaded |
 | `heston.calibration.iterations` | 11 | count |  |
 | `heston.calibration.rmse` | 1.94464e-10 | implied vol points | noiseless data from known parameters: this measures the machinery, not the model |
 | `heston.calibration.v0_error` | 5.09326e-12 | relative |  |
@@ -148,11 +204,11 @@ the method.
 | `heston.quadrature.absolute_floor` | 2.75605e-12 | fraction of the forward | set by the cancellation in C = F - integral |
 | `heston.black_scholes_limit` | 6.95977e-11 | max relative | the degenerate limit, where the textbook CF loses 10% |
 | `heston.martingale_error` | 0 | max absolute | out to 30 years; must be zero for E[S_T/F] = 1 |
-| `heston.price.per_option` | 97.6023 | us/option | 32-node Gauss-Legendre on 16 panels of the Lewis integral |
-| `heston.price.per_slice` | 9.61344 | us/option | same quadrature, 14 expiries x 31 strikes |
-| `heston.price.slice_speedup` | 10.1527 | x |  |
-| `heston.gradient.per_slice` | 16.1311 | us/option | forward-mode AD through the CF |
-| `heston.gradient.overhead` | 1.67798 | x | central differences would need 11 repricings, at ~1e-8 accuracy |
+| `heston.price.per_option` | 105.334 | us/option | 32-node Gauss-Legendre on 16 panels of the Lewis integral |
+| `heston.price.per_slice` | 13.6381 | us/option | same quadrature, 14 expiries x 31 strikes |
+| `heston.price.slice_speedup` | 7.72348 | x |  |
+| `heston.gradient.per_slice` | 22.0721 | us/option | forward-mode AD through the CF |
+| `heston.gradient.overhead` | 1.61841 | x | central differences would need 11 repricings, at ~1e-8 accuracy |
 | `heston.stability.v0` | 0.218839 | % coefficient of variation | 20 boards, each quote perturbed by 0.2 vol points |
 | `heston.stability.kappa` | 1.69338 | % coefficient of variation |  |
 | `heston.stability.theta` | 0.443892 | % coefficient of variation |  |
@@ -168,7 +224,15 @@ the method.
 | `sabr.normal.arbitrage_boundary` | 0.258559 | K/F | same parameters |
 | `sabr.lognormal.violations` | 131 | of 1500 |  |
 | `sabr.normal.violations` | 120 | of 1500 |  |
-| `sabr.vol.latency` | 78.7661 | ns/strike |  |
+| `sabr.vol.latency` | 70.0685 | ns/strike |  |
+| `sabr.repair.violations_before` | 131 | of 1501 |  |
+| `sabr.repair.violations_after` | 0 | of 1501 | isotonic regression on the call slopes; exact, not iterative |
+| `sabr.repair.min_density_before` | -87.2331 | density |  |
+| `sabr.repair.min_density_after` | -1.95343e-09 | density | at the noise floor of a second difference on this grid |
+| `sabr.repair.max_vol_change` | 3.47565 | implied vol points | worst over the grid, concentrated in the wing that was not a price |
+| `sabr.repair.mass_before` | 0.754186 | dimensionless | a distribution integrates to one; this is the larger of the two failures |
+| `sabr.repair.mass_after` | 0.848664 | dimensionless | the slope bounds recover part of it; convexity cannot recover the rest |
+| `sabr.repair.latency` | 403.88 | ns/strike | including pricing, the projection and re-implying every strike |
 
 ### Finite differences
 
@@ -177,16 +241,21 @@ the method.
 | `pde.american.error_bp` | 0.316249 | basis points | PSOR on an 800 x 400 grid |
 | `pde.american.solver_agreement` | 8.14697e-09 | absolute | same discretisation, so this measures the solvers and not the grid |
 | `pde.american.psor_iterations` | 68449 | count |  |
+| `pde.dividends.american_early_exercise` | 1.00213 | price | zero without the dividend; a yield cannot produce it |
+| `pde.dividends.yield_error_european` | 0.39599 | price | same forward, different process |
+| `pde.dividends.yield_error_american` | 0.960159 | price | larger, because the exercise decision needs the drop and not its PV |
+| `pde.dividends.escrowed_gap` | 0.395912 | price | a modelling choice, not a discretisation error: the volatility acts on S - PV(D) rather than on S |
+| `pde.dividends.time` | 445.695 | ms | 800 x 400 split into two segments, Rannacher restarted at the ex-date |
 | `pde.european.price_error` | 6.10697e-06 | relative | 800 space steps x 400 time steps, Rannacher startup |
 | `pde.european.delta_error` | 7.01829e-07 | absolute |  |
 | `pde.european.gamma_error` | 6.20057e-08 | absolute |  |
 | `pde.gamma_without_rannacher` | 103.024 | relative | at the strike; CN is stable but not damping and a payoff kink is all high-frequency |
 | `pde.gamma_with_rannacher` | 2.48914e-05 | relative | same grid, same everything else |
-| `pde.european.time` | 4.71899 | ms | 800 x 400, single-threaded |
+| `pde.european.time` | 4.35267 | ms | 800 x 400, single-threaded |
 | `pde.heston.vs_characteristic_function` | 0.000699653 | max relative | 240 x 120 x 200, Craig-Sneyd; three strikes from 0.8 to 1.25 of spot |
 | `pde.heston.douglas_error` | 0.0506409 | relative | first-order in time because the mixed term is explicit |
 | `pde.heston.craig_sneyd_error` | 0.00313627 | relative | one extra explicit correction restores second order |
-| `pde.heston.time` | 608.72 | ms | 240 x 120 x 200, single-threaded |
+| `pde.heston.time` | 501.469 | ms | 240 x 120 x 200, single-threaded |
 
 ### Monte Carlo
 
@@ -224,8 +293,8 @@ the method.
 
 | metric | value | unit | notes |
 |---|---:|---|---|
-| `aad.overhead` | 2.42891 | x | same code path, 10 risk factors, 100k paths x 16 steps |
-| `aad.speedup` | 9.01096 | x | bumping needs 21 repricings with common random numbers |
+| `aad.overhead` | 1.87478 | x | same code path, 10 risk factors, 100k paths x 16 steps |
+| `aad.speedup` | 12.259 | x | bumping needs 21 repricings with common random numbers |
 | `aad.factors` | 10 | count | spot, v0, kappa, theta, sigma, rho, rate, dividend, strike, expiry |
 | `aad.tape_nodes` | 387 | count | 16 steps |
 | `aad.vs_bump_agreement` | 0.0966679 | worst, scaled by the larger of the value and its Monte Carlo error |  |
@@ -236,7 +305,7 @@ the method.
 
 ## Property tests
 
-121 properties, 46,002 assertions, 0 failures, 9.4 s.
+139 properties, 48,747 assertions, 0 failures, 11.4 s.
 
 The invariants checked are the ones that hold for reasons independent of
 this implementation, so a bug cannot satisfy them by agreeing with itself:

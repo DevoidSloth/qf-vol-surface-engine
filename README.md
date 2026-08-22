@@ -102,6 +102,31 @@ the duality gap is dominated by the inner-simulation bias of the upper bound,
 falling 230 → 138 → 67 → 33 bp as the inner path count doubles, while the lower
 bound sits 6.2 bp from the reference.
 
+### Cross-validation
+
+Every engine is checked against another engine that shares no code with it. The
+full matrix is in [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md); the shape of
+it:
+
+| model | second method | max relative | max abs (of forward) |
+|---|---|---:|---:|
+| Black-Scholes | Crank-Nicolson PDE | 5.9e-06 | 2.0e-07 |
+| Black-Scholes | Leisen-Reimer tree | 4.0e-09 | 3.0e-10 |
+| Black-Scholes | Heston at σ → 0 | **7.9e-14** | 2.9e-15 |
+| Heston | Carr-Madan FFT | 1.4e-06 | 2.2e-08 |
+| Heston | Craig-Sneyd ADI | 7.0e-04 | 3.2e-05 |
+| Heston | Monte Carlo | 3.6e-04 | 3.4e-05 |
+| Heston | Bates at λ = 0 | **4.8e-13** | 2.7e-15 |
+| SABR | *none* | — | — |
+
+The degenerate limits are the strongest rows: the reference is a closed form
+with no discretisation of its own, so the tolerance is machine precision rather
+than a judgement call. The Monte Carlo row is 2.19 standard errors, which is the
+only scale on which a Monte Carlo deviation means anything. SABR has no second
+method and the row says so rather than being left out. Put-call parity holds to
+3.5e-17 through the Lewis integral and 2.8e-08 through the PDE, where it is
+really a test of the boundary conditions.
+
 **What the surface numbers were measured on.** Synthetic chains generated from a
 known eSSVI surface with quote noise and tick rounding, not live market data.
 A free delayed feed gives quotes that are asynchronous across strikes, so an

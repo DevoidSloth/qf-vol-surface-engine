@@ -402,6 +402,9 @@ def render(env, results, tests, numpy_iv, gap) -> str:
     w(_shortfalls(results, numpy_iv))
     w("")
 
+    w(validation_matrix(results))
+    w("")
+
     w("## Full results")
     w("")
     groups: dict[str, list] = {}
@@ -459,6 +462,89 @@ def reflow(text: str, width: int = 78) -> str:
         joined = " ".join(paragraph.split())
         out.append(textwrap.fill(joined, width=width) if joined else "")
     return blank.join(out)
+
+
+VALIDATION_ROWS = [
+    ("Black-Scholes", "Crank-Nicolson PDE", "validation.bs.pde", "1600 x 800, Rannacher"),
+    ("Black-Scholes", "Leisen-Reimer tree", "validation.bs.tree", "4001 steps"),
+    ("Black-Scholes", "Heston, sigma -> 0", "validation.bs.heston_limit", "degenerate limit"),
+    ("Black-Scholes", "Bates, no jumps", "validation.bs.bates_limit", "degenerate limit"),
+    ("Heston", "Carr-Madan FFT", "validation.heston.fft", "N = 8192"),
+    ("Heston", "Craig-Sneyd ADI", "validation.heston.pde", "240 x 120 x 200"),
+    ("Heston", "Monte Carlo", "validation.heston.mc", "400k paths, QE + conditional"),
+    ("Heston", "Bates, lambda = 0", "validation.heston.bates_limit", "degenerate limit"),
+]
+
+
+def validation_matrix(results) -> str:
+    """Every model against every method that can price it.
+
+    The table the whole report rests on. A pricer checked only against itself is
+    checked against nothing, and the usual way a pricing library is wrong is for
+    two of its engines to disagree in the fourth decimal while each looks
+    plausible alone.
+    """
+    lines = [
+        "## The validation matrix",
+        "",
+        "Each row prices the same European call across a 0.80-1.25 moneyness",
+        "ladder by two independent routes and reports the worst disagreement.",
+        "The reference for Black-Scholes is the closed form; for Heston it is the",
+        "Lewis integral at quadrature order 64, whose own convergence was",
+        "measured separately rather than assumed.",
+        "",
+        "Both columns are given deliberately. A relative error is unreadable on a",
+        "cheap option -- 1e-9 of the forward on an option worth 1e-7 of it is a",
+        "1% relative error that says something about the strike and nothing about",
+        "the method -- and an absolute one hides a systematic bias at the money.",
+        "",
+        "| model | second method | max relative | max abs (of forward) | notes |",
+        "|---|---|---:|---:|---|",
+    ]
+    for model, method, key, note in VALIDATION_ROWS:
+        rel = get(results, f"{key}.relative", default=float("nan"))
+        absolute = get(results, f"{key}.absolute", default=float("nan"))
+        lines.append(f"| {model} | {method} | {rel:.2e} | {absolute:.2e} | {note} |")
+    lines.append("| SABR | *none* | -- | -- | see below |")
+    lines.append("")
+
+    se = get(results, "validation.heston.mc_standard_errors", default=float("nan"))
+    lines.append(
+        reflow(
+            f"The Monte Carlo row is the one that cannot be read from the table "
+            f"alone. At the money it sits {se:.2f} standard errors from the Lewis "
+            f"integral, and that is the only scale on which a Monte Carlo deviation "
+            f"means anything: a quarter of a standard error and five standard "
+            f'errors are both "3.6e-04 relative" and mean opposite things.'
+        )
+    )
+    lines.append("")
+    lines.append(
+        reflow(
+            "SABR has no second method here and the row says so rather than being "
+            "left out. Hagan's is an asymptotic expansion of the implied volatility, "
+            "and validating it needs a simulation of the SABR SDE, which this "
+            "library does not have. What it does have is a check that the expansion "
+            "is not a distribution at all (see the smile-repair results), which is a "
+            "different and in this case more useful thing to know."
+        )
+    )
+    lines.append("")
+
+    parity = [
+        ("closed form", "validation.parity.black_scholes"),
+        ("Lewis integral", "validation.parity.heston"),
+        ("Crank-Nicolson", "validation.parity.pde"),
+    ]
+    lines.append("**Put-call parity**, as a fraction of the forward. Model-free, so a")
+    lines.append("deviation is never a modelling difference and always a bug -- the one")
+    lines.append("check here that needs no judgement about tolerances.")
+    lines.append("")
+    lines.append("| engine | worst violation |")
+    lines.append("|---|---:|")
+    for label, key in parity:
+        lines.append(f"| {label} | {get(results, key, default=float('nan')):.2e} |")
+    return "\n".join(lines)
 
 
 def _shortfalls(results, numpy_iv) -> str:
