@@ -121,6 +121,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: python -m pip install ruff
+      # Pinned. An unpinned linter turns a green build red on a day nobody
+      # touched the code, because the tool shipped a new rule -- and a job that
+      # fails for reasons unrelated to the commit is a job people learn to
+      # ignore. Bumping this is a deliberate change with its own diff.
+      #
+      # The first CI run found EXE001 this way: three scripts carry a shebang
+      # and were not marked executable, which is a real defect and one that
+      # cannot fire on Windows, where the mode bit does not exist.
+      - run: python -m pip install "ruff==0.16.4"
       - run: ruff check python scripts tests
       - run: ruff format --check --diff python scripts tests
